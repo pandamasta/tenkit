@@ -1,0 +1,13 @@
+{{ define "title" }}Welcome to tenkit{{ end }}
+
+{{ define "content" }}
+<div class="card bg-base-100 shadow-xl p-6">
+    <h2 class="text-xl">This is the public marketing and enrollment site.</h2>
+</div>
+{{ if .UserID }}
+  <p>👋 Welcome back! Your user ID is {{ .UserID }}</p>
+{{ else }}
+  <p>Please log in or enroll.</p>
+{{ end }}
+
+{{ end }}

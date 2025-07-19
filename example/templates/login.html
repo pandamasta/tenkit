@@ -1,0 +1,11 @@
+
+{{ define "title" }}Login to Your Tenant{{ end }}
+
+{{ define "content" }}
+  <form action="/login" method="post">
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    <input name="email" type="email" placeholder="Email" required>
+    <input name="password" type="password" placeholder="Password" required>
+    <button type="submit">Log In</button>
+  </form>
+  {{ end }}

@@ -1,0 +1,15 @@
+{{ define "title" }}{{ .Tenant.Name }} - Club Page{{ end }}
+
+{{ define "content" }}
+<div class="card bg-base-100 shadow-xl p-6">
+    <h2 class="text-2xl font-bold text-secondary">👋 Hello from {{ .Tenant.Name }}</h2>
+    <p class="text-lg">Subdomain: {{ .Tenant.Subdomain }}</p>
+
+    {{ if .User }}
+    <p>👤 Welcome back, {{ .User.Email }}!</p>
+    <a class="btn btn-secondary" href="/logout">Logout</a>
+    {{ else }}
+    <p>Please <a href="/login" class="text-blue-500">log in</a> to access your dashboard.</p>
+    {{ end }}
+</div>
+{{ end }}

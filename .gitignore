@@ -1,0 +1,5 @@
+bin/
+example/.env
+example/example
+*.db
+*.log
