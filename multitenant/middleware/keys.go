@@ -8,4 +8,5 @@ const (
 	TenantKey      contextKey = "tenant"
 	isTenantCtxKey contextKey = "isTenant"
 	CsrfKey        contextKey = "csrf_token"
+	langKey        contextKey = "lang"
 )

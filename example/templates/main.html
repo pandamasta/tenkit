@@ -1,13 +1,13 @@
-{{ define "title" }}Welcome to tenkit{{ end }}
+{{ define "title" }}{{ call .T "main.title" }}{{ end }}
 
 {{ define "content" }}
 <div class="card bg-base-100 shadow-xl p-6">
-    <h2 class="text-xl">This is the public marketing and enrollment site.</h2>
+    <h2 class="text-xl">{{ call .T "main.subtitle" }}</h2>
 </div>
-{{ if .UserID }}
-  <p>👋 Welcome back! Your user ID is {{ .UserID }}</p>
-{{ else }}
-  <p>Please log in or enroll.</p>
-{{ end }}
 
+{{ if .UserID }}
+  <p>👋 {{ call .T "main.welcome_back" }} {{ .UserID }}</p>
+{{ else }}
+  <p>{{ call .T "main.login_or_enroll" }}</p>
+{{ end }}
 {{ end }}

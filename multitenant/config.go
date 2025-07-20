@@ -5,15 +5,24 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/pandamasta/tenkit/internal/envloader"
 )
 
-// AppConfig defines the global configuration structure for a multitenant application.
+// Config defines the global configuration structure for a multitenant application.
 type Config struct {
-	Domain        string        // Root domain, e.g., "example.com"
+	Domain        string        // Root domain (e.g., "example.com")
 	SessionCookie CookieConfig  // Session cookie configuration
 	CSRF          CSRFConfig    // CSRF protection configuration
 	Server        ServerConfig  // HTTP server configuration
 	TokenExpiry   time.Duration // Default token/session expiration
+	I18n          I18nConfig    // Language and translation config
+}
+
+// I18nConfig holds configuration for i18n and translations.
+type I18nConfig struct {
+	DefaultLang string // e.g. "en", "fr"
+	LocalesPath string // Path to folder with JSON translation files
 }
 
 // CookieConfig holds session cookie settings.
@@ -40,8 +49,13 @@ type ServerConfig struct {
 
 // LoadDefaultConfig returns an AppConfig populated with environment variables or default values.
 func LoadDefaultConfig() *Config {
+	envloader.LoadDotEnv(".env") // log déjà géré
+
 	domain := getEnv("APP_DOMAIN", "localhost:9003")
 	isSecure := domain != "localhost" && domain != "localhost:9003"
+
+	defaultLang := getEnv("DEFAULT_LANG", "en")
+	localesPath := getEnv("TENKIT_LOCALES", "internal/i18n/locales") // permet override en prod/dev
 
 	return &Config{
 		Domain: domain,
@@ -62,6 +76,10 @@ func LoadDefaultConfig() *Config {
 			Addr: getEnv("SERVER_ADDR", ":9003"),
 		},
 		TokenExpiry: 24 * time.Hour,
+		I18n: I18nConfig{
+			DefaultLang: defaultLang,
+			LocalesPath: localesPath,
+		},
 	}
 }
 

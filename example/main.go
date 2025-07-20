@@ -10,7 +10,7 @@ import (
 
 	"github.com/pandamasta/tenkit/db"
 	"github.com/pandamasta/tenkit/handlers"
-	"github.com/pandamasta/tenkit/internal/envloader"
+	"github.com/pandamasta/tenkit/internal/i18n"
 	"github.com/pandamasta/tenkit/models"
 	"github.com/pandamasta/tenkit/multitenant"
 	"github.com/pandamasta/tenkit/multitenant/middleware"
@@ -22,53 +22,54 @@ var (
 )
 
 type PageData struct {
-	Tenant *multitenant.Tenant // Changed to multitenant.Tenant
+	Tenant *multitenant.Tenant
 	UserID int64
 	User   *models.User
+	Lang   string
+	T      func(string) string
 }
 
 func main() {
-
-	// Load env
-
-	envloader.LoadDotEnv(".env")
-
-	// Set up slog with text handler (string format)
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
-
-	// load config
-
 	cfg := multitenant.LoadDefaultConfig()
 
-	// Envvar
+	i18n.SetDefaultLang(cfg.I18n.DefaultLang)
+	slog.Info("[LANG] Loading locales", "path", cfg.I18n.LocalesPath)
+	if err := i18n.LoadLocales(cfg.I18n.LocalesPath); err != nil {
+		slog.Error("Error loading translations", "err", err)
+	}
+
+	// Log config
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
 	if os.Getenv("TENKIT_DEBUG") == "1" {
 		db.EnableDebugLogs()
-		slog.Info(" Debug logging ENABLED")
+		i18n.EnableDebug()
+		slog.Info("Debug logging ENABLED")
 	}
 
-	// 1 Init DB & Constants
+	// Load DB
+
 	db.Init()
 
-	// 2 Load templates
+	// Load templates
 	base := []string{
 		"templates/base.html",
 		"templates/header.html",
 	}
 	mainPageTmpl = template.Must(template.ParseFiles(append(base, "templates/main.html")...))
 	tenantPageTmpl = template.Must(template.ParseFiles(append(base, "templates/tenant.html")...))
+
 	handlers.InitEnrollTemplates(base)
 	handlers.InitRegisterTemplates(base)
 	handlers.InitLoginTemplates(base)
 
-	// 3 Setup Routes
+	// Routes
 	mux := http.NewServeMux()
 
-	// Static assets
 	fileServer := http.FileServer(http.Dir("static"))
 	mux.Handle("/static/", http.StripPrefix("/static/", fileServer))
 
-	// Public + tenant routes
 	mux.HandleFunc("/", homeHandler)
 	mux.HandleFunc("/enroll", func(w http.ResponseWriter, r *http.Request) {
 		handlers.EnrollHandler(cfg, w, r)
@@ -94,35 +95,40 @@ func main() {
 	resolver := multitenant.SubdomainResolver{Config: cfg}
 	fetcher := multitenant.DBFetcher{DB: db.DB}
 
-	// 4 Wrap with Middleware: Tenant + Logger
-	handler := middleware.TenantMiddleware(cfg, resolver, fetcher, mux)
+	// Middleware
+	handler := middleware.LangMiddleware(cfg, mux)
+	handler = middleware.TenantMiddleware(cfg, resolver, fetcher, handler)
 	handler = middleware.SessionMiddleware(cfg, handler)
 	handler = middleware.CSRFMiddleware(handler)
 	handler = middleware.Logger(cfg, handler)
 
-	// 5 Start Server
 	slog.Info("Starting HTTP server", "addr", cfg.Server.Addr)
 	slog.Debug("Loaded config", "config", cfg)
 
 	if err := http.ListenAndServe(cfg.Server.Addr, handler); err != nil {
 		slog.Error("Server exited with error", "error", err)
 	}
-
 }
 
 func homeHandler(w http.ResponseWriter, r *http.Request) {
 	t := middleware.FromContext(r.Context())
 	u := middleware.CurrentUser(r)
+	lang := middleware.LangFromContext(r.Context())
+
 	uid := int64(0)
 	if u != nil {
 		uid = u.ID
 	}
-	slog.Info("[MAIN-homeHandler] GET / - tenant", "tenant", t, "userID", uid)
+	slog.Info("[MAIN-homeHandler] GET / - tenant", "tenant", t, "userID", uid, "lang", lang)
 
 	data := PageData{
 		Tenant: t,
 		UserID: uid,
 		User:   u,
+		Lang:   lang,
+		T: func(key string) string {
+			return i18n.T(key, lang)
+		},
 	}
 
 	if t != nil {
@@ -134,11 +140,22 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 
 func dashboardHandler(w http.ResponseWriter, r *http.Request) {
 	t := middleware.FromContext(r.Context())
-	user := middleware.CurrentUser(r)
+	u := middleware.CurrentUser(r)
+	lang := middleware.LangFromContext(r.Context())
 
-	data := map[string]interface{}{
-		"Tenant": t,
-		"User":   user,
+	uid := int64(0)
+	if u != nil {
+		uid = u.ID
+	}
+
+	data := PageData{
+		Tenant: t,
+		UserID: uid,
+		User:   u,
+		Lang:   lang,
+		T: func(key string) string {
+			return i18n.T(key, lang)
+		},
 	}
 
 	if t != nil {
