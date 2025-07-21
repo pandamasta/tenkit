@@ -24,25 +24,32 @@ var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-
 var subdomainRegex = regexp.MustCompile(`^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$`)
 
 func InitEnrollTemplates(base []string) {
-	tmpl = template.Must(template.ParseFiles(append(base, "templates/enroll.html")...))
+	tmpl = template.Must(template.ParseFiles(
+		"templates/header.html",
+		"templates/base.html",
+		"templates/enroll.html",
+	))
 }
 
 func EnrollHandler(cfg *multitenant.Config, w http.ResponseWriter, r *http.Request) {
 	// Step 1: Handle GET request to serve the enroll form
 	if r.Method == http.MethodGet {
-		// Extract CSRF token from context (set by middleware)
+		slog.Debug("[ENROLL] GET request received")
+
 		csrfToken, ok := r.Context().Value(middleware.CsrfKey).(string)
 		if !ok {
 			slog.Error("[ENROLL] CSRF token not found in context")
-			http.Error(w, "Internal error", 500)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
 			return
 		}
-		data := struct {
-			CSRFToken string
-		}{
-			CSRFToken: csrfToken,
-		}
-		tmpl.Execute(w, data) // Render template with CSRF data
+		slog.Debug("[ENROLL] CSRF token retrieved", "token", csrfToken)
+
+		data := utils.BaseTemplateData(r, map[string]interface{}{
+			"CSRFToken": csrfToken,
+		})
+
+		slog.Debug("[ENROLL] Rendering template with base layout using RenderTemplate")
+		utils.RenderTemplate(w, tmpl, "base", data)
 		return
 	}
 

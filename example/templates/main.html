@@ -8,6 +8,9 @@
 {{ if .UserID }}
   <p>👋 {{ call .T "main.welcome_back" }} {{ .UserID }}</p>
 {{ else }}
-  <p>{{ call .T "main.login_or_enroll" }}</p>
+<p>
+  <a href="/login">{{ call .T "main.login" }}</a>
+  <a href="/enroll">{{ call .T "main.enroll" }}</a>
+</p>
 {{ end }}
 {{ end }}

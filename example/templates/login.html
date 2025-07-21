@@ -1,11 +1,24 @@
-
-{{ define "title" }}Login to Your Tenant{{ end }}
+{{ define "title" }}{{ call .T "login.title" }}{{ end }}
 
 {{ define "content" }}
-  <form action="/login" method="post">
-    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-    <input name="email" type="email" placeholder="Email" required>
-    <input name="password" type="password" placeholder="Password" required>
-    <button type="submit">Log In</button>
-  </form>
-  {{ end }}
+  <div class="card bg-base-100 shadow-xl p-6 max-w-md mx-auto">
+    <h2 class="text-xl font-semibold mb-4">{{ call .T "login.heading" }}</h2>
+
+    <form action="/login" method="post" class="space-y-4">
+      <!-- CSRF Protection -->
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+
+      <div>
+        <label for="email" class="block mb-1">{{ call .T "login.email_label" }}</label>
+        <input id="email" name="email" type="email" placeholder="{{ call .T "login.email_placeholder" }}" required class="input input-bordered w-full">
+      </div>
+
+      <div>
+        <label for="password" class="block mb-1">{{ call .T "login.password_label" }}</label>
+        <input id="password" name="password" type="password" placeholder="{{ call .T "login.password_placeholder" }}" required class="input input-bordered w-full">
+      </div>
+
+      <button type="submit" class="btn btn-primary w-full">{{ call .T "login.submit" }}</button>
+    </form>
+  </div>
+{{ end }}

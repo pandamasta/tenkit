@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"html/template"
 	"log"
 	"net/http"
 	"strings"
@@ -11,12 +12,21 @@ import (
 	"github.com/pandamasta/tenkit/multitenant/utils"
 )
 
+var verifyTmpl *template.Template
+
+func InitVerifyTemplates(base []string) {
+	verifyTmpl = template.Must(template.ParseFiles(append(base, "templates/verify.html")...))
+}
+
 func VerifyHandler(cfg *multitenant.Config, w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	email, org, ok := utils.ValidateSignupToken(token)
 	if !ok {
 		log.Printf("[VERIFY] Invalid or expired token")
-		http.Error(w, "Invalid or expired verification link.", http.StatusBadRequest)
+		data := utils.BaseTemplateData(r, map[string]interface{}{
+			"MessageKey": "verify.invalid_token",
+		})
+		utils.RenderTemplate(w, verifyTmpl, "base", data)
 		return
 	}
 
@@ -31,11 +41,17 @@ func VerifyHandler(cfg *multitenant.Config, w http.ResponseWriter, r *http.Reque
 	err := db.DB.QueryRow(`SELECT password_hash FROM pending_tenant_signups WHERE token = ?`, token).Scan(&ph)
 	if err == sql.ErrNoRows {
 		log.Printf("[VERIFY] Token already used or not found: %s (%s)", org, email)
-		http.Error(w, "This link has already been used.", http.StatusGone)
+		data := utils.BaseTemplateData(r, map[string]interface{}{
+			"MessageKey": "verify.link_already_used",
+		})
+		utils.RenderTemplate(w, verifyTmpl, "base", data)
 		return
 	} else if err != nil {
 		log.Printf("[VERIFY] DB error reading signup token: %v", err)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		data := utils.BaseTemplateData(r, map[string]interface{}{
+			"MessageKey": "common.internal_error",
+		})
+		utils.RenderTemplate(w, verifyTmpl, "base", data)
 		return
 	}
 
@@ -45,7 +61,10 @@ func VerifyHandler(cfg *multitenant.Config, w http.ResponseWriter, r *http.Reque
 	tenantExists := (err != sql.ErrNoRows)
 	if err != nil && err != sql.ErrNoRows {
 		log.Printf("[VERIFY] Tenant lookup DB error: %v", err)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
+		data := utils.BaseTemplateData(r, map[string]interface{}{
+			"MessageKey": "common.internal_error",
+		})
+		utils.RenderTemplate(w, verifyTmpl, "base", data)
 		return
 	}
 
@@ -56,13 +75,19 @@ func VerifyHandler(cfg *multitenant.Config, w http.ResponseWriter, r *http.Reque
 
 	if tenantExists && userExists {
 		log.Printf("[VERIFY] Tenant and user already exist: %s (%s)", sub, email)
-		w.Write([]byte("Your account is already verified. You may now log in."))
+		data := utils.BaseTemplateData(r, map[string]interface{}{
+			"MessageKey": "verify.already_verified",
+		})
+		utils.RenderTemplate(w, verifyTmpl, "base", data)
 		return
 	}
 
 	if tenantExists && !userExists {
 		log.Printf("[VERIFY] Tenant '%s' exists but user '%s' does not", sub, email)
-		http.Error(w, "This organization already exists. Please contact support.", http.StatusConflict)
+		data := utils.BaseTemplateData(r, map[string]interface{}{
+			"MessageKey": "common.conflict_error",
+		})
+		utils.RenderTemplate(w, verifyTmpl, "base", data)
 		return
 	}
 
@@ -72,7 +97,10 @@ func VerifyHandler(cfg *multitenant.Config, w http.ResponseWriter, r *http.Reque
 		VALUES (?, ?, ?, ?, 1, 0)`, org, sub, sub, email)
 	if err != nil {
 		log.Printf("[VERIFY] Failed to create tenant: %v", err)
-		http.Error(w, "Could not create organization", http.StatusInternalServerError)
+		data := utils.BaseTemplateData(r, map[string]interface{}{
+			"MessageKey": "common.internal_error",
+		})
+		utils.RenderTemplate(w, verifyTmpl, "base", data)
 		return
 	}
 	tid, _ = res.LastInsertId()
@@ -83,7 +111,10 @@ func VerifyHandler(cfg *multitenant.Config, w http.ResponseWriter, r *http.Reque
 		VALUES (?, ?, 1, ?, 'owner')`, email, ph, tid)
 	if err != nil {
 		log.Printf("[VERIFY] Failed to create user: %v", err)
-		http.Error(w, "Could not create account", http.StatusInternalServerError)
+		data := utils.BaseTemplateData(r, map[string]interface{}{
+			"MessageKey": "common.internal_error",
+		})
+		utils.RenderTemplate(w, verifyTmpl, "base", data)
 		return
 	}
 	uid, _ = res.LastInsertId()
@@ -92,5 +123,9 @@ func VerifyHandler(cfg *multitenant.Config, w http.ResponseWriter, r *http.Reque
 	db.DB.Exec(`DELETE FROM pending_tenant_signups WHERE token = ?`, token)
 
 	log.Printf("[VERIFY] Tenant '%s' and user '%s' created successfully!", sub, email)
-	w.Write([]byte("Your account has been verified! You may now log in."))
+
+	data := utils.BaseTemplateData(r, map[string]interface{}{
+		"MessageKey": "verify.success",
+	})
+	utils.RenderTemplate(w, verifyTmpl, "base", data)
 }

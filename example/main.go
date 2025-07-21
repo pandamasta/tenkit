@@ -53,16 +53,19 @@ func main() {
 	db.Init()
 
 	// Load templates
-	base := []string{
+	baseTemplates := []string{
 		"templates/base.html",
 		"templates/header.html",
 	}
-	mainPageTmpl = template.Must(template.ParseFiles(append(base, "templates/main.html")...))
-	tenantPageTmpl = template.Must(template.ParseFiles(append(base, "templates/tenant.html")...))
+	mainPageTmpl = template.Must(template.ParseFiles(append(baseTemplates, "templates/main.html")...))
+	tenantPageTmpl = template.Must(template.ParseFiles(append(baseTemplates, "templates/tenant.html")...))
 
-	handlers.InitEnrollTemplates(base)
-	handlers.InitRegisterTemplates(base)
-	handlers.InitLoginTemplates(base)
+	handlers.InitHomeTemplates()
+	handlers.InitEnrollTemplates(baseTemplates)
+	handlers.InitRegisterTemplates(baseTemplates)
+	handlers.InitLoginTemplates(baseTemplates)
+	handlers.InitVerifyTemplates(baseTemplates)
+	handlers.InitConfirmTemplates(baseTemplates)
 
 	// Routes
 	mux := http.NewServeMux()
@@ -70,7 +73,22 @@ func main() {
 	fileServer := http.FileServer(http.Dir("static"))
 	mux.Handle("/static/", http.StripPrefix("/static/", fileServer))
 
-	mux.HandleFunc("/", homeHandler)
+	mux.HandleFunc("/", handlers.HomeHandler)
+
+	// Set language via dropdown (persists in cookie)
+	mux.HandleFunc("/lang", func(w http.ResponseWriter, r *http.Request) {
+		lang := r.URL.Query().Get("lang")
+		if lang != "" {
+			http.SetCookie(w, &http.Cookie{
+				Name:  "lang",
+				Value: lang,
+				Path:  "/",
+				// Optionnel : MaxAge, SameSite, etc.
+			})
+		}
+		http.Redirect(w, r, r.Referer(), http.StatusSeeOther)
+	})
+
 	mux.HandleFunc("/enroll", func(w http.ResponseWriter, r *http.Request) {
 		handlers.EnrollHandler(cfg, w, r)
 	})
@@ -107,34 +125,6 @@ func main() {
 
 	if err := http.ListenAndServe(cfg.Server.Addr, handler); err != nil {
 		slog.Error("Server exited with error", "error", err)
-	}
-}
-
-func homeHandler(w http.ResponseWriter, r *http.Request) {
-	t := middleware.FromContext(r.Context())
-	u := middleware.CurrentUser(r)
-	lang := middleware.LangFromContext(r.Context())
-
-	uid := int64(0)
-	if u != nil {
-		uid = u.ID
-	}
-	slog.Info("[MAIN-homeHandler] GET / - tenant", "tenant", t, "userID", uid, "lang", lang)
-
-	data := PageData{
-		Tenant: t,
-		UserID: uid,
-		User:   u,
-		Lang:   lang,
-		T: func(key string) string {
-			return i18n.T(key, lang)
-		},
-	}
-
-	if t != nil {
-		tenantPageTmpl.Execute(w, data)
-	} else {
-		mainPageTmpl.Execute(w, data)
 	}
 }
 

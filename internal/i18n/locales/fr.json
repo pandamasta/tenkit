@@ -1,6 +1,40 @@
 {
-  "main.title": "Bienvenue sur tenkit",
-  "main.subtitle": "Ceci est le site public d'inscription et d'information.",
-  "main.welcome_back": "Content de te revoir ! Ton identifiant utilisateur est",
-  "main.login_or_enroll": "Merci de vous connecter ou de vous inscrire."
+  "common.internal_error": "Erreur interne. Veuillez réessayer plus tard.",
+
+  "main.title": "Bienvenue sur Tenkit",
+  "main.subtitle": "Module Go pour gerer les site multitenant",
+  "main.welcome_back": "Bon retour",
+  "main.login_or_enroll": " ou  pour commencer",
+  "main.login": "Connectez-vous",
+  "main.enroll": "inscrivez-vous",
+
+  "enroll.title": "Inscription",
+  "enroll.heading": "Enregistrez votre Tenant",
+  "enroll.email": "Email",
+  "enroll.org_name": "Nom de l'organisation",
+  "enroll.password": "Mot de passe",
+  "enroll.submit": "Envoyer",
+  "enroll.success_title": "Vérifiez votre e-mail",
+  "enroll.success_heading": "Presque terminé !",
+  "enroll.success_text": "Veuillez vérifier votre e-mail pour valider votre compte.",
+
+  "login.title": "Connexion à votre Tenant",
+  "login.heading": "Connexion",
+  "login.email_label": "Email",
+  "login.email_placeholder": "",
+  "login.password_label": "Mot de passe",
+  "login.password_placeholder": "",
+  "login.submit": "Se connecter",
+
+  "verify.success": "Votre compte a été vérifié ! Vous pouvez maintenant vous connecter.",
+  "verify.already_verified": "Votre compte est déjà vérifié. Vous pouvez maintenant vous connecter.",
+  "verify.invalid_token": "Lien de vérification invalide ou expiré.",
+  "verify.link_already_used": "Ce lien de vérification a déjà été utilisé.",
+
+  "confirm.invalid_token": "Lien de confirmation invalide ou expiré.",
+  "confirm.not_found": "Aucune demande d'inscription trouvée.",
+  "confirm.success": "🎉 Email vérifié ! Vous pouvez maintenant vous connecter.",
+
+  "login.button": "Se connecter",
+  "action.login": "Connexion"
 }

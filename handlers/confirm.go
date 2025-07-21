@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"html/template"
+	"log"
 	"net/http"
 
 	"github.com/pandamasta/tenkit/db"
@@ -8,18 +10,33 @@ import (
 	"github.com/pandamasta/tenkit/multitenant/utils"
 )
 
+var confirmTmpl *template.Template
+
+func InitConfirmTemplates(base []string) {
+	confirmTmpl = template.Must(template.ParseFiles(append(base, "templates/confirm.html")...))
+}
+
 func ConfirmHandler(cfg *multitenant.Config, w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	email, tid, ok := utils.ValidateUserToken(token)
 	if !ok {
-		http.Error(w, "Invalid or expired", 400)
+		log.Printf("[CONFIRM] Invalid or expired token")
+		data := utils.BaseTemplateData(r, map[string]interface{}{
+			"MessageKey": "confirm.invalid_token",
+		})
+		utils.RenderTemplate(w, confirmTmpl, "base", data)
 		return
 	}
+
 	row := db.DB.QueryRow(`
         SELECT password_hash FROM pending_user_signups WHERE token = ? AND tenant_id = ?`, token, tid)
 	var ph string
 	if row.Scan(&ph) != nil {
-		http.Error(w, "No signup found", 400)
+		log.Printf("[CONFIRM] No signup found for email=%s, tid=%d", email, tid)
+		data := utils.BaseTemplateData(r, map[string]interface{}{
+			"MessageKey": "confirm.not_found",
+		})
+		utils.RenderTemplate(w, confirmTmpl, "base", data)
 		return
 	}
 
@@ -33,5 +50,10 @@ func ConfirmHandler(cfg *multitenant.Config, w http.ResponseWriter, r *http.Requ
 	tx.Exec(`DELETE FROM pending_user_signups WHERE token = ?`, token)
 	tx.Commit()
 
-	w.Write([]byte("🎉 Email verified! You can now log in."))
+	log.Printf("[CONFIRM] User confirmed: %s (tenant %d)", email, tid)
+
+	data := utils.BaseTemplateData(r, map[string]interface{}{
+		"MessageKey": "confirm.success",
+	})
+	utils.RenderTemplate(w, confirmTmpl, "base", data)
 }

@@ -1,3 +1,4 @@
+{{ define "base" }}
 <!DOCTYPE html>
 <html>
 <head>
@@ -10,8 +11,15 @@
     {{ template "header" . }}
 
     <main class="p-6">
+        <form method="GET" action="/lang" class="inline-block">
+            <select name="lang" onchange="this.form.submit()" class="select select-sm select-bordered">
+                <option value="en" {{if eq .Lang "en"}}selected{{end}}>EN</option>
+                <option value="fr" {{if eq .Lang "fr"}}selected{{end}}>FR</option>
+            </select>
+        </form>
         {{ block "content" . }}{{ end }}
     </main>
 
 </body>
 </html>
+{{ end }}

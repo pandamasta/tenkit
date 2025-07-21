@@ -1,0 +1,8 @@
+{{ define "title" }}Email Confirmation{{ end }}
+
+{{ define "content" }}
+<div class="max-w-xl mx-auto text-center mt-12">
+  <h2 class="text-2xl font-bold mb-4">{{ call .T .MessageKey }}</h2>
+  <a class="btn btn-primary mt-4" href="/login">{{ call .T "login.button" }}</a>
+</div>
+{{ end }}

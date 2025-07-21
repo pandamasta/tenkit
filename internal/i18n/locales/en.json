@@ -1,6 +1,39 @@
 {
-  "main.title": "Welcome to tenkit",
-  "main.subtitle": "This is the public marketing and enrollment site.",
-  "main.welcome_back": "Welcome back! Your user ID is",
-  "main.login_or_enroll": "Please log in or enroll."
+  "common.internal_error": "Internal error. Please try again later.",
+
+  "main.title": "Welcome to Tenkit",
+  "main.subtitle": "Go module to manage multitenant site",
+  "main.welcome_back": "Welcome back",
+  "main.login": "Log in",
+  "main.enroll": "Enroll",
+
+  "enroll.title": "Enroll",
+  "enroll.heading": "Register your Tenant",
+  "enroll.email": "Email",
+  "enroll.org_name": "Organization Name",
+  "enroll.password": "Password",
+  "enroll.submit": "Submit",
+  "enroll.success_title": "Check Your Email",
+  "enroll.success_heading": "Almost there!",
+  "enroll.success_text": "Please check your email to verify your account.",
+
+  "login.title": "Login to Your Tenant",
+  "login.heading": "Log In",
+  "login.email_label": "Email",
+  "login.email_placeholder": "",
+  "login.password_label": "Password",
+  "login.password_placeholder": "",
+  "login.submit": "Log In",
+
+  "verify.success": "Your account has been verified! You may now log in.",
+  "verify.already_verified": "Your account is already verified. You may now log in.",
+  "verify.invalid_token": "Invalid or expired verification link.",
+  "verify.link_already_used": "This verification link has already been used.",
+
+  "confirm.invalid_token": "Invalid or expired confirmation link.",
+  "confirm.not_found": "No signup request found.",
+  "confirm.success": "🎉 Email verified! You can now log in.",
+
+  "login.button": "Log In",
+  "action.login": "Log In"
 }
