@@ -1,22 +1,19 @@
-{{ define "title" }}Register for {{ .Tenant.Subdomain }}{{ end }}
+{{ define "title" }}{{ call .T "register.title" .Tenant.Subdomain }}{{ end }}
 
 {{ define "content" }}
-<h2 class="text-2xl font-bold mb-4">Join this club</h2>
-<p class="text-sm text-gray-500">You're registering to tenant: <strong>{{ .Tenant.Subdomain }}</strong></p>
+<h2 class="text-2xl font-bold mb-4">{{ call .T "register.heading" }}</h2>
+<p class="text-sm text-gray-500">{{ call .T "register.tenant_info" .Tenant.Subdomain }}</p>
+{{ if .Extra.Error }}
+    <div class="alert alert-error">{{ .Extra.Error }}</div>
+{{ end }}
+{{ if .Extra.Success }}
+    <div class="alert alert-success">{{ .Extra.Success }}</div>
+{{ end }}
 
-<!-- Registration form -->
 <form method="post" class="form-control space-y-4 max-w-md mx-auto">
-
-    <!-- CSRF protection token -->
     <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
-
-    <!-- Email input -->
-    <input class="input input-bordered" type="email" name="email" placeholder="Email" required>
-
-    <!-- Password input -->
-    <input class="input input-bordered" type="password" name="password" placeholder="Password" required>
-
-    <!-- Submit button -->
-    <button class="btn btn-primary">Register</button>
+    <input class="input input-bordered" type="email" name="email" placeholder="{{ call .T "register.email_placeholder" }}" required>
+    <input class="input input-bordered" type="password" name="password" placeholder="{{ call .T "register.password_placeholder" }}" required>
+    <button class="btn btn-primary">{{ call .T "register.submit" }}</button>
 </form>
 {{ end }}

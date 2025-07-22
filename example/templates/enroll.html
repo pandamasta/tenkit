@@ -4,6 +4,12 @@
 <form method="POST" class="max-w-md mx-auto space-y-4">
     <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
     <h2 class="text-2xl font-bold">{{ call .T "enroll.heading" }}</h2>
+    {{ if .Extra.Error }}
+        <div class="alert alert-error">{{ .Extra.Error }}</div>
+    {{ end }}
+    {{ if .Extra.Success }}
+        <div class="alert alert-success">{{ .Extra.Success }}</div>
+    {{ end }}
     <input type="email" name="email" placeholder="{{ call .T "enroll.email" }}" class="input input-bordered w-full" required>
     <input type="text" name="org_name" placeholder="{{ call .T "enroll.org_name" }}" class="input input-bordered w-full" required>
     <input type="password" name="password" placeholder="{{ call .T "enroll.password" }}" class="input input-bordered w-full" required>

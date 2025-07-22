@@ -5,8 +5,8 @@
     <h2 class="text-xl">{{ call .T "main.subtitle" }}</h2>
 </div>
 
-{{ if .UserID }}
-  <p>👋 {{ call .T "main.welcome_back" }} {{ .UserID }}</p>
+{{ if .User }}
+  <p>👋 {{ call .T "main.welcome_back" .User.Email }}</p>
 {{ else }}
 <p>
   <a href="/login">{{ call .T "main.login" }}</a>

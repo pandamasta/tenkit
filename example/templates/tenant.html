@@ -1,15 +1,15 @@
-{{ define "title" }}{{ .Tenant.Name }} - Club Page{{ end }}
+{{ define "title" }}{{ call .T "tenant.title" .Tenant.Name }}{{ end }}
 
 {{ define "content" }}
 <div class="card bg-base-100 shadow-xl p-6">
-    <h2 class="text-2xl font-bold text-secondary">👋 Hello from {{ .Tenant.Name }}</h2>
-    <p class="text-lg">Subdomain: {{ .Tenant.Subdomain }}</p>
+    <h2 class="text-2xl font-bold text-secondary">{{ call .T "tenant.heading" .Tenant.Name }}</h2>
+    <p class="text-lg">{{ call .T "tenant.subdomain" .Tenant.Subdomain }}</p>
 
     {{ if .User }}
-    <p>👤 Welcome back, {{ .User.Email }}!</p>
-    <a class="btn btn-secondary" href="/logout">Logout</a>
+    <p>{{ call .T "tenant.welcome_back" .User.Email }}</p>
+    <a class="btn btn-secondary" href="/logout">{{ call .T "tenant.logout" }}</a>
     {{ else }}
-    <p>Please <a href="/login" class="text-blue-500">log in</a> to access your dashboard.</p>
+    <p>{{ call .T "tenant.login_prompt" }} <a href="/login" class="text-blue-500">{{ call .T "tenant.login_link" }}</a></p>
     {{ end }}
 </div>
 {{ end }}

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/pandamasta/tenkit/db"
+	"github.com/pandamasta/tenkit/internal/i18n"
+	"github.com/pandamasta/tenkit/internal/render"
 	"github.com/pandamasta/tenkit/multitenant"
 	"github.com/pandamasta/tenkit/multitenant/middleware"
 	"github.com/pandamasta/tenkit/multitenant/utils"
@@ -15,93 +17,165 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var registerTmpl *template.Template
-
-func InitRegisterTemplates(base []string) {
-	registerTmpl = template.Must(template.ParseFiles(append(base, "templates/register.html")...))
+// InitRegisterTemplates parses the templates needed for the register page.
+// It includes header, base layout, and register-specific content.
+func InitRegisterTemplates(base []string) *template.Template {
+	tmpl := template.New("base").Funcs(template.FuncMap{
+		"t": func(key string, args ...any) string {
+			return key // Placeholder
+		},
+	})
+	var err error
+	tmpl, err = tmpl.ParseFiles(append(base, "templates/register.html")...)
+	if err != nil {
+		slog.Error("[REGISTER] Failed to parse register template", "err", err)
+		panic(err)
+	}
+	return tmpl
 }
 
-// GET or POST /register
-func RegisterHandler(cfg *multitenant.Config, w http.ResponseWriter, r *http.Request) {
-	// Step 1: Retrieve tenant from context
-	tCtx := middleware.FromContext(r.Context())
-	if tCtx == nil {
-		http.Error(w, "Register only allowed from tenant domains", http.StatusForbidden)
-		return
-	}
+// RegisterHandler handles GET and POST requests for /register.
+func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Template) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lang := middleware.LangFromContext(r.Context())
 
-	// Step 2: Handle GET request to serve the register form
-	if r.Method == http.MethodGet {
-		csrfToken, ok := r.Context().Value(middleware.CsrfKey).(string)
-		if !ok {
-			slog.Error("[REGISTER] CSRF token not found in context")
-			http.Error(w, "Internal error", http.StatusInternalServerError)
+		// Step 1: Retrieve tenant from context
+		tCtx := middleware.FromContext(r.Context())
+		if tCtx == nil {
+			slog.Error("[REGISTER] Tenant context missing")
+			data := render.BaseTemplateData(r, i18n, map[string]any{
+				"Error": i18n.T("register.error.no_tenant", lang),
+			})
+			w.WriteHeader(http.StatusForbidden)
+			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
 
-		data := utils.BaseTemplateData(r, map[string]interface{}{
-			"CSRFToken": csrfToken,
-			"Tenant":    tCtx,
+		// Step 2: Handle GET request to serve the register form
+		if r.Method == http.MethodGet {
+			data := render.BaseTemplateData(r, i18n, nil)
+			slog.Debug("[REGISTER] Rendering register form", "lang", lang, "tenant", tCtx.Subdomain)
+			render.RenderTemplate(w, tmpl, "base", data)
+			return
+		}
+
+		// Step 3: Parse the form data for POST requests
+		if err := r.ParseForm(); err != nil {
+			slog.Error("[REGISTER] Invalid form", "err", err)
+			data := render.BaseTemplateData(r, i18n, map[string]any{
+				"Error": i18n.T("register.error.invalid_form", lang),
+			})
+			w.WriteHeader(http.StatusBadRequest)
+			render.RenderTemplate(w, tmpl, "base", data)
+			return
+		}
+
+		// Step 4: Extract and validate form data
+		email := r.FormValue("email")
+		password := r.FormValue("password")
+		if email == "" || password == "" {
+			data := render.BaseTemplateData(r, i18n, map[string]any{
+				"Error": i18n.T("register.error.missing_fields", lang),
+			})
+			w.WriteHeader(http.StatusBadRequest)
+			render.RenderTemplate(w, tmpl, "base", data)
+			return
+		}
+
+		// Step 5: Start transaction
+		tx, err := db.DB.Begin()
+		if err != nil {
+			slog.Error("[REGISTER] Failed to start transaction", "err", err)
+			data := render.BaseTemplateData(r, i18n, map[string]any{
+				"Error": i18n.T("register.error.internal", lang),
+			})
+			w.WriteHeader(http.StatusInternalServerError)
+			render.RenderTemplate(w, tmpl, "base", data)
+			return
+		}
+		defer tx.Rollback() // Rollback if not committed
+
+		// Step 6: Check for existing pending signups
+		var exists int
+		err = tx.QueryRow(`
+			SELECT COUNT(*) 
+			FROM pending_user_signups 
+			WHERE email = ? AND tenant_id = ?`, email, tCtx.ID).Scan(&exists)
+		if err != nil {
+			slog.Error("[REGISTER] DB error checking pending signups", "err", err)
+			data := render.BaseTemplateData(r, i18n, map[string]any{
+				"Error": i18n.T("register.error.internal", lang),
+			})
+			w.WriteHeader(http.StatusInternalServerError)
+			render.RenderTemplate(w, tmpl, "base", data)
+			return
+		}
+		if exists > 0 {
+			slog.Info("[REGISTER] Already registered", "email", email, "tenant", tCtx.Subdomain)
+			data := render.BaseTemplateData(r, i18n, map[string]any{
+				"Error": i18n.T("register.error.already_registered", lang),
+			})
+			w.WriteHeader(http.StatusBadRequest)
+			render.RenderTemplate(w, tmpl, "base", data)
+			return
+		}
+
+		// Step 7: Hash password with bcrypt
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			slog.Error("[REGISTER] Password hashing error", "err", err)
+			data := render.BaseTemplateData(r, i18n, map[string]any{
+				"Error": i18n.T("register.error.internal", lang),
+			})
+			w.WriteHeader(http.StatusInternalServerError)
+			render.RenderTemplate(w, tmpl, "base", data)
+			return
+		}
+
+		// Step 8: Generate token and insert pending signup
+		token, err := utils.GenerateUserToken(email, tCtx.ID, time.Now().Add(24*time.Hour))
+		if err != nil {
+			slog.Error("[REGISTER] Token generation error", "err", err)
+			data := render.BaseTemplateData(r, i18n, map[string]any{
+				"Error": i18n.T("register.error.internal", lang),
+			})
+			w.WriteHeader(http.StatusInternalServerError)
+			render.RenderTemplate(w, tmpl, "base", data)
+			return
+		}
+
+		_, err = tx.Exec(`
+			INSERT INTO pending_user_signups (email, tenant_id, password_hash, token, expires_at)
+			VALUES (?, ?, ?, ?, ?)`, email, tCtx.ID, string(hash), token, time.Now().Add(24*time.Hour))
+		if err != nil {
+			slog.Error("[REGISTER] Failed to insert pending signup", "err", err)
+			data := render.BaseTemplateData(r, i18n, map[string]any{
+				"Error": i18n.T("register.error.internal", lang),
+			})
+			w.WriteHeader(http.StatusInternalServerError)
+			render.RenderTemplate(w, tmpl, "base", data)
+			return
+		}
+
+		// Step 9: Commit transaction
+		if err := tx.Commit(); err != nil {
+			slog.Error("[REGISTER] Failed to commit transaction", "err", err)
+			data := render.BaseTemplateData(r, i18n, map[string]any{
+				"Error": i18n.T("register.error.internal", lang),
+			})
+			w.WriteHeader(http.StatusInternalServerError)
+			render.RenderTemplate(w, tmpl, "base", data)
+			return
+		}
+
+		// Step 10: Generate confirmation link and log
+		link := fmt.Sprintf("http://%s.%s/confirm?token=%s", tCtx.Subdomain, cfg.Domain, token)
+		slog.Info("[REGISTER] Sent confirm link", "email", email, "link", link)
+
+		// Step 11: Render success message
+		data := render.BaseTemplateData(r, i18n, map[string]any{
+			"Success": i18n.T("register.success", lang),
 		})
-
-		utils.RenderTemplate(w, registerTmpl, "base", data)
-		return
+		render.RenderTemplate(w, tmpl, "base", data)
 	}
-
-	// Step 3: Parse the form data for POST requests
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid form", http.StatusBadRequest)
-		return
-	}
-
-	e := r.FormValue("email")
-	p := r.FormValue("password")
-
-	// Step 4: Basic validation (add more if needed, e.g., email format)
-	if e == "" || p == "" {
-		http.Error(w, "Email and password required", http.StatusBadRequest)
-		return
-	}
-
-	// Step 5: Check for existing pending signups
-	var exists int
-	err := db.DB.QueryRow(`
-		SELECT COUNT(*) 
-		FROM pending_user_signups 
-		WHERE email = ? AND tenant_id = ?`, e, tCtx.ID).Scan(&exists)
-	if err != nil {
-		slog.Error("[REGISTER] DB error", "err", err)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
-		return
-	}
-	if exists > 0 {
-		http.Error(w, "Already registered — check email", http.StatusBadRequest)
-		return
-	}
-
-	// Step 6: Hash password with bcrypt
-	hash, err := bcrypt.GenerateFromPassword([]byte(p), bcrypt.DefaultCost)
-	if err != nil {
-		slog.Error("[REGISTER] Password hashing error", "err", err)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
-		return
-	}
-
-	// Step 7: Generate token and insert pending signup
-	token, _ := utils.GenerateUserToken(e, tCtx.ID, time.Now().Add(24*time.Hour))
-	_, err = db.DB.Exec(`
-		INSERT INTO pending_user_signups (email, tenant_id, password_hash, token, expires_at)
-		VALUES (?, ?, ?, ?, ?)`, e, tCtx.ID, string(hash), token, time.Now().Add(24*time.Hour))
-	if err != nil {
-		slog.Error("[REGISTER] Failed to insert pending signup", "err", err)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
-		return
-	}
-
-	// Step 8: Display confirmation message or send email
-	link := fmt.Sprintf("http://%s.%s/confirm?token=%s", tCtx.Subdomain, cfg.Domain, token)
-	slog.Info("[REGISTER] Sent confirm link", "email", e, "link", link)
-
-	// Just render a success message
-	w.Write([]byte("Check your email for a confirmation link."))
 }

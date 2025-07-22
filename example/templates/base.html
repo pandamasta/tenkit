@@ -2,14 +2,12 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>{{ block "title" . }}Tenkit{{ end }}</title>
+    <title>{{ block "title" . }}{{ call .T "base.title" }}{{ end }}</title>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.10.2/dist/full.min.css" rel="stylesheet" />
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-base-200 text-center p-10">
-
     {{ template "header" . }}
-
     <main class="p-6">
         <form method="GET" action="/lang" class="inline-block">
             <select name="lang" onchange="this.form.submit()" class="select select-sm select-bordered">
@@ -19,7 +17,6 @@
         </form>
         {{ block "content" . }}{{ end }}
     </main>
-
 </body>
 </html>
 {{ end }}

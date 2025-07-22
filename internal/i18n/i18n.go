@@ -2,6 +2,7 @@ package i18n
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -9,88 +10,104 @@ import (
 	"sync"
 )
 
-var (
-	translations      = make(map[string]map[string]string) // lang -> key -> value
-	defaultLang       = "en"
-	debugTranslations = false
-	mu                sync.RWMutex
-)
-
-// SetDefaultLang sets the fallback language if no match found
-func SetDefaultLang(lang string) {
-	mu.Lock()
-	defer mu.Unlock()
-	defaultLang = lang
+type I18n struct {
+	translations map[string]map[string]string
+	defaultLang  string
+	debug        bool
+	mu           sync.RWMutex
 }
 
-// EnableDebug enables debug logging for missing translations
-func EnableDebug() {
-	debugTranslations = true
+func New(defaultLang string) *I18n {
+	return &I18n{
+		translations: make(map[string]map[string]string),
+		defaultLang:  defaultLang,
+	}
 }
 
-// LoadLocales loads all .json files from the provided directory
-func LoadLocales(dir string) error {
+func (i *I18n) EnableDebug() {
+	i.debug = true
+}
+
+func (i *I18n) LoadLocales(dir string) error {
 	files, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	if err != nil {
 		return err
 	}
-
 	if len(files) == 0 {
 		slog.Warn("[LANG] No translation files found", "dir", dir)
 	}
-
 	for _, file := range files {
 		lang := strings.TrimSuffix(filepath.Base(file), ".json")
 		slog.Info("[LANG] Loading translation file", "file", file, "lang", lang)
-
 		data, err := os.ReadFile(file)
 		if err != nil {
 			slog.Error("[LANG] Failed to read translation file", "file", file, "error", err)
 			return err
 		}
-
 		var entries map[string]string
 		if err := json.Unmarshal(data, &entries); err != nil {
 			slog.Error("[LANG] Invalid JSON format", "file", file, "error", err)
 			return err
 		}
-
 		if len(entries) == 0 {
 			slog.Warn("[LANG] Translation file is empty", "file", file)
 		}
-
-		mu.Lock()
-		translations[lang] = entries
-		mu.Unlock()
-
+		i.mu.Lock()
+		i.translations[lang] = entries
+		i.mu.Unlock()
 		slog.Info("[LANG] Successfully loaded", "lang", lang, "entries", len(entries))
+		if i.debug {
+			keys := make([]string, 0, len(entries))
+			for k := range entries {
+				keys = append(keys, k)
+			}
+			slog.Debug("[LANG] Loaded keys", "lang", lang, "keys", keys)
+		}
+	}
+	if i.debug {
+		slog.Debug("[LANG] All translations loaded", "translations", i.translations)
 	}
 	return nil
 }
 
-// T translates a key into the requested language, fallback to defaultLang
-func T(key, lang string) string {
-	mu.RLock()
+func (i *I18n) T(key, lang string, args ...any) string {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
 
-	defer mu.RUnlock()
-
-	if debugTranslations {
-		slog.Debug("[LANG] Looking up key", "key", key, "lang", lang)
-	}
-
-	if val, ok := translations[lang][key]; ok {
-		return val
-	}
-
-	if val, ok := translations[defaultLang][key]; ok {
-		if debugTranslations {
-			slog.Warn("[LANG] Missing translation in requested lang", "key", key, "lang", lang, "fallback", defaultLang)
+	if i.debug {
+		keys := make([]string, 0, len(i.translations[lang]))
+		for k := range i.translations[lang] {
+			keys = append(keys, k)
 		}
-		return val
+		slog.Debug("[LANG] Looking up key", "key", key, "lang", lang, "available_keys", keys)
 	}
 
-	if debugTranslations {
-		slog.Error("[LANG] Missing translation in all langs", "key", key, "lang", lang)
+	val := i.getTranslation(key, lang)
+	if val == "" {
+		if i.debug {
+			slog.Warn("[LANG] Missing translation in all langs", "key", key, "lang", lang)
+		}
+		val = key // Fallback to key
 	}
-	return key
+
+	if len(args) > 0 {
+		return fmt.Sprintf(val, args...)
+	}
+	return val
+}
+
+func (i *I18n) getTranslation(key, lang string) string {
+	if val, ok := i.translations[lang][key]; ok {
+		return val
+	}
+	baseLang := strings.Split(lang, "-")[0]
+	if baseLang != lang {
+		if val, ok := i.translations[baseLang][key]; ok {
+			return val
+		}
+	}
+	if val, ok := i.translations[i.defaultLang][key]; ok {
+		return val
+	}
+	return ""
 }
