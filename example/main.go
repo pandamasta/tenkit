@@ -24,14 +24,26 @@ var (
 func main() {
 	cfg := multitenant.LoadDefaultConfig()
 
-	i18n := i18n.New(cfg.I18n.DefaultLang)
+	// Initialiser i18n avec validation
+	i18n, err := i18n.New(cfg.I18n.DefaultLang)
+	if err != nil {
+		slog.Error("[LANG] Failed to initialize i18n", "error", err)
+		os.Exit(1)
+	}
 	slog.Info("[LANG] Loading locales", "path", cfg.I18n.LocalesPath)
 	if err := i18n.LoadLocales(cfg.I18n.LocalesPath); err != nil {
-		slog.Error("Error loading translations", "err", err)
+		slog.Error("[LANG] Error loading translations", "err", err)
+		os.Exit(1)
+	}
+
+	if os.Getenv("TENKIT_DEBUG") == "1" {
+		db.EnableDebugLogs()
+		i18n.EnableDebug()
+		slog.Info("Debug logging ENABLED")
 	}
 
 	// Log config
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
 	if os.Getenv("TENKIT_DEBUG") == "1" {
 		db.EnableDebugLogs()
@@ -102,7 +114,7 @@ func main() {
 	fetcher := multitenant.DBFetcher{DB: db.DB}
 
 	// Middleware
-	handler := middleware.LangMiddleware(cfg, mux)
+	handler := middleware.LangMiddleware(cfg, i18n, mux)
 	handler = middleware.TenantMiddleware(cfg, resolver, fetcher, handler)
 	handler = middleware.SessionMiddleware(cfg, handler)
 	handler = middleware.CSRFMiddleware(handler)
