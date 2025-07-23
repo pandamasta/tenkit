@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/pandamasta/tenkit/db"
 	"github.com/pandamasta/tenkit/internal/i18n"
@@ -40,12 +41,37 @@ func InitEnrollTemplates(base []string) *template.Template {
 	return tmpl
 }
 
+// isValidPassword validates the password against the policy: min 8 chars, 1 uppercase, 1 number, 1 special char.
+func isValidPassword(password string) bool {
+	if len(password) < 8 {
+		return false
+	}
+	var hasUpper, hasNumber, hasSpecial bool
+	for _, r := range password {
+		if unicode.IsUpper(r) {
+			hasUpper = true
+		} else if unicode.IsDigit(r) {
+			hasNumber = true
+		} else if strings.ContainsAny(string(r), "!@#$%^&*(),.?\":{}|<>") {
+			hasSpecial = true
+		}
+	}
+	return hasUpper && hasNumber && hasSpecial
+}
+
 // EnrollHandler handles GET requests to serve the enroll form and POST requests to process it.
 func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lang := middleware.LangFromContext(r.Context())
 
-		// Step 1: Handle GET request to serve the enroll form
+		// Step 1: Restrict to marketing domain (non-tenant), return 404 if tenant
+		if middleware.IsTenantRequest(r.Context()) {
+			slog.Warn("[ENROLL] Enrollment attempted on tenant domain", "host", r.Host)
+			http.NotFound(w, r)
+			return
+		}
+
+		// Step 2: Handle GET request to serve the enroll form
 		if r.Method == http.MethodGet {
 			slog.Debug("[ENROLL] GET request received")
 			data := render.BaseTemplateData(r, i18n, nil)
@@ -54,7 +80,7 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			return
 		}
 
-		// Step 2: Parse the form data for POST requests
+		// Step 3: Parse the form data for POST requests
 		if err := r.ParseForm(); err != nil {
 			slog.Error("[ENROLL] Invalid form", "err", err)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
@@ -69,8 +95,9 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 		org := strings.TrimSpace(r.FormValue("org_name"))
 		password := r.FormValue("password")
 
-		// Step 3: Validate required fields
+		// Step 4: Validate required fields
 		if email == "" || org == "" || password == "" {
+			slog.Warn("[ENROLL] Missing required fields", "email", email, "org", org)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("enroll.required_fields", lang),
 			})
@@ -79,8 +106,9 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			return
 		}
 
-		// Step 4: Validate email format
+		// Step 5: Validate email format
 		if !emailRegex.MatchString(email) {
+			slog.Warn("[ENROLL] Invalid email format", "email", email)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("enroll.invalid_email", lang),
 			})
@@ -89,9 +117,10 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			return
 		}
 
+		// Step 6: Validate subdomain
 		sub := strings.ToLower(strings.ReplaceAll(org, " ", ""))
-		// Step 5: Validate subdomain
 		if !subdomainRegex.MatchString(sub) {
+			slog.Warn("[ENROLL] Invalid subdomain", "sub", sub)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("enroll.invalid_org_name", lang),
 			})
@@ -100,7 +129,18 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			return
 		}
 
-		// Step 6: Check for duplicate email or subdomain in DB
+		// Step 7: Validate password policy
+		if !isValidPassword(password) {
+			slog.Warn("[ENROLL] Invalid password format", "email", email)
+			data := render.BaseTemplateData(r, i18n, map[string]any{
+				"Error": i18n.T("enroll.invalid_password", lang),
+			})
+			w.WriteHeader(http.StatusBadRequest)
+			render.RenderTemplate(w, tmpl, "base", data)
+			return
+		}
+
+		// Step 8: Check for duplicate email or subdomain in DB
 		var exists int
 		err := db.DB.QueryRow(`SELECT 1 FROM tenants WHERE email = ? OR subdomain = ?`, email, sub).Scan(&exists)
 		if err == sql.ErrNoRows {
@@ -123,7 +163,7 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			return
 		}
 
-		// Step 7: Hash password with bcrypt
+		// Step 9: Hash password with bcrypt
 		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		if err != nil {
 			slog.Error("[ENROLL] Password hashing error", "err", err)
@@ -137,7 +177,7 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 		passHash := string(hash)
 
 		expires := time.Now().Add(24 * time.Hour)
-		// Step 8: Generate signup token
+		// Step 10: Generate signup token
 		token, err := utils.GenerateSignupToken(email, org, expires)
 		if err != nil {
 			slog.Error("[ENROLL] Token generation error", "err", err)
@@ -149,7 +189,7 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			return
 		}
 
-		// Step 9: Insert pending signup into DB
+		// Step 11: Insert pending signup into DB
 		_, err = db.DB.Exec(`
 			INSERT INTO pending_tenant_signups (email, org_name, password_hash, token, expires_at)
 			VALUES (?, ?, ?, ?, ?)`,
@@ -164,7 +204,7 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			return
 		}
 
-		// Step 10: Generate verification link and log
+		// Step 12: Generate verification link and log
 		link := fmt.Sprintf("http://%s/verify?token=%s", cfg.Domain, token)
 		slog.Info("[ENROLL] Token created", "email", email, "link", link)
 
