@@ -1,0 +1,23 @@
+{{ define "title" }}{{ call .T "reset.title" .TenantName }}{{ end }}
+
+{{ define "content" }}
+<h2 class="text-2xl font-bold mb-4">{{ call .T "reset.heading" }}</h2>
+<p class="text-sm text-gray-500">{{ call .T "reset.info" .TenantName }}</p>
+{{ if .Extra.Error }}
+    <div class="alert alert-error">{{ .Extra.Error }}</div>
+{{ end }}
+{{ if .Extra.Success }}
+    <div class="alert alert-success">{{ .Extra.Success }}</div>
+{{ end }}
+
+<form method="post" class="form-control space-y-4 max-w-md mx-auto">
+    <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+    {{ if .Extra.Token }}
+        <input type="hidden" name="token" value="{{ .Extra.Token }}">
+        <input class="input input-bordered" type="password" name="password" placeholder="{{ call .T "reset.password_placeholder" }}" required>
+    {{ else }}
+        <input class="input input-bordered" type="email" name="email" placeholder="{{ call .T "reset.email_placeholder" }}" required>
+    {{ end }}
+    <button class="btn btn-primary">{{ call .T "reset.submit" }}</button>
+</form>
+{{ end }}

@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/pandamasta/tenkit/db"
@@ -39,19 +40,22 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 	return func(w http.ResponseWriter, r *http.Request) {
 		lang := middleware.LangFromContext(r.Context())
 
-		// Step 1: Retrieve tenant from context
-		tCtx := middleware.FromContext(r.Context())
-		if tCtx == nil {
-			slog.Error("[REGISTER] Tenant context missing")
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("register.error.no_tenant", lang),
-			})
-			w.WriteHeader(http.StatusForbidden)
-			render.RenderTemplate(w, tmpl, "base", data)
+		// Step 1: Restrict to tenant domains, return 404 if not tenant
+		if !middleware.IsTenantRequest(r.Context()) {
+			slog.Warn("[REGISTER] Registration attempted on non-tenant domain", "host", r.Host)
+			http.NotFound(w, r)
 			return
 		}
 
-		// Step 2: Handle GET request to serve the register form
+		// Step 2: Retrieve tenant from context
+		tCtx := middleware.FromContext(r.Context())
+		if tCtx == nil {
+			slog.Error("[REGISTER] Tenant context missing")
+			http.NotFound(w, r)
+			return
+		}
+
+		// Step 3: Handle GET request to serve the register form
 		if r.Method == http.MethodGet {
 			data := render.BaseTemplateData(r, i18n, nil)
 			slog.Debug("[REGISTER] Rendering register form", "lang", lang, "tenant", tCtx.Subdomain)
@@ -59,7 +63,7 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			return
 		}
 
-		// Step 3: Parse the form data for POST requests
+		// Step 4: Parse the form data for POST requests
 		if err := r.ParseForm(); err != nil {
 			slog.Error("[REGISTER] Invalid form", "err", err)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
@@ -70,10 +74,11 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			return
 		}
 
-		// Step 4: Extract and validate form data
-		email := r.FormValue("email")
+		// Step 5: Extract and validate form data
+		email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 		password := r.FormValue("password")
 		if email == "" || password == "" {
+			slog.Warn("[REGISTER] Missing required fields", "email", email)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("register.error.missing_fields", lang),
 			})
@@ -82,7 +87,29 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			return
 		}
 
-		// Step 5: Start transaction
+		// Step 6: Validate email format
+		if !emailRegex.MatchString(email) {
+			slog.Warn("[REGISTER] Invalid email format", "email", email)
+			data := render.BaseTemplateData(r, i18n, map[string]any{
+				"Error": i18n.T("register.error.invalid_email", lang),
+			})
+			w.WriteHeader(http.StatusBadRequest)
+			render.RenderTemplate(w, tmpl, "base", data)
+			return
+		}
+
+		// Step 7: Validate password policy
+		if !isValidPassword(password) {
+			slog.Warn("[REGISTER] Invalid password format", "email", email)
+			data := render.BaseTemplateData(r, i18n, map[string]any{
+				"Error": i18n.T("register.error.invalid_password", lang),
+			})
+			w.WriteHeader(http.StatusBadRequest)
+			render.RenderTemplate(w, tmpl, "base", data)
+			return
+		}
+
+		// Step 8: Start transaction
 		tx, err := db.DB.Begin()
 		if err != nil {
 			slog.Error("[REGISTER] Failed to start transaction", "err", err)
@@ -95,7 +122,7 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 		}
 		defer tx.Rollback() // Rollback if not committed
 
-		// Step 6: Check for existing pending signups
+		// Step 9: Check for existing pending signups
 		var exists int
 		err = tx.QueryRow(`
 			SELECT COUNT(*) 
@@ -120,7 +147,7 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			return
 		}
 
-		// Step 7: Hash password with bcrypt
+		// Step 10: Hash password with bcrypt
 		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		if err != nil {
 			slog.Error("[REGISTER] Password hashing error", "err", err)
@@ -132,7 +159,7 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			return
 		}
 
-		// Step 8: Generate token and insert pending signup
+		// Step 11: Generate token and insert pending signup
 		token, err := utils.GenerateUserToken(email, tCtx.ID, time.Now().Add(24*time.Hour))
 		if err != nil {
 			slog.Error("[REGISTER] Token generation error", "err", err)
@@ -157,7 +184,7 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			return
 		}
 
-		// Step 9: Commit transaction
+		// Step 12: Commit transaction
 		if err := tx.Commit(); err != nil {
 			slog.Error("[REGISTER] Failed to commit transaction", "err", err)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
@@ -168,11 +195,11 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			return
 		}
 
-		// Step 10: Generate confirmation link and log
+		// Step 13: Generate confirmation link and log
 		link := fmt.Sprintf("http://%s.%s/confirm?token=%s", tCtx.Subdomain, cfg.Domain, token)
 		slog.Info("[REGISTER] Sent confirm link", "email", email, "link", link)
 
-		// Step 11: Render success message
+		// Step 14: Render success message
 		data := render.BaseTemplateData(r, i18n, map[string]any{
 			"Success": i18n.T("register.success", lang),
 		})

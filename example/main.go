@@ -11,7 +11,6 @@ import (
 	"github.com/pandamasta/tenkit/db"
 	"github.com/pandamasta/tenkit/handlers"
 	"github.com/pandamasta/tenkit/internal/i18n"
-	"github.com/pandamasta/tenkit/internal/render"
 	"github.com/pandamasta/tenkit/multitenant"
 	"github.com/pandamasta/tenkit/multitenant/middleware"
 )
@@ -45,12 +44,6 @@ func main() {
 	// Log config
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
-	if os.Getenv("TENKIT_DEBUG") == "1" {
-		db.EnableDebugLogs()
-		i18n.EnableDebug()
-		slog.Info("Debug logging ENABLED")
-	}
-
 	// Load DB
 	db.Init()
 
@@ -59,12 +52,13 @@ func main() {
 		"templates/base.html",
 		"templates/header.html",
 	}
-	mainPageTmpl, tenantPageTmpl = handlers.InitHomeTemplates(baseTemplates)
+	mainPageTmpl, tenantPageTmpl = handlers.InitDashboardTemplates(baseTemplates)
 	enrollTmpl := handlers.InitEnrollTemplates(baseTemplates)
 	verifyTmpl := handlers.InitVerifyTemplates(baseTemplates)
 	registerTmpl := handlers.InitRegisterTemplates(baseTemplates)
 	confirmTmpl := handlers.InitConfirmTemplates(baseTemplates)
 	loginTmpl := handlers.InitLoginTemplates(baseTemplates)
+	resetTmpl := handlers.InitResetTemplates(baseTemplates)
 
 	// Routes
 	mux := http.NewServeMux()
@@ -73,8 +67,6 @@ func main() {
 	mux.Handle("/static/", http.StripPrefix("/static/", fileServer))
 
 	mux.HandleFunc("/", handlers.HomeHandler(i18n, mainPageTmpl, tenantPageTmpl))
-
-	// Set language via dropdown (persists in cookie)
 	mux.HandleFunc("/lang", func(w http.ResponseWriter, r *http.Request) {
 		lang := r.URL.Query().Get("lang")
 		if lang != "" {
@@ -87,28 +79,15 @@ func main() {
 		http.Redirect(w, r, r.Referer(), http.StatusSeeOther)
 	})
 
-	mux.HandleFunc("/enroll", handlers.EnrollHandler(cfg, i18n, enrollTmpl))
-	mux.HandleFunc("/verify", handlers.VerifyHandler(cfg, i18n, verifyTmpl))
-	mux.HandleFunc("/register", handlers.RegisterHandler(cfg, i18n, registerTmpl))
-	mux.HandleFunc("/confirm", handlers.ConfirmHandler(cfg, i18n, confirmTmpl))
-	mux.HandleFunc("/login", handlers.LoginHandler(cfg, i18n, loginTmpl))
-	mux.HandleFunc("/logout", handlers.LogoutHandler(cfg, i18n))
-
-	dashboardHandler := func(w http.ResponseWriter, r *http.Request) {
-		// Step 1: Prepare template data
-		data := render.BaseTemplateData(r, i18n, nil)
-		slog.Debug("[DASHBOARD] Rendering dashboard", "lang", data.Lang, "tenant", data.Tenant != nil, "user", data.User != nil)
-
-		// Step 2: Render template
-		if data.Tenant != nil {
-			slog.Debug("[DASHBOARD] Rendering tenant template", "template", "tenant.html")
-			render.RenderTemplate(w, tenantPageTmpl, "base", data)
-		} else {
-			slog.Debug("[DASHBOARD] Rendering main template", "template", "main.html")
-			render.RenderTemplate(w, mainPageTmpl, "base", data)
-		}
-	}
-	mux.Handle("/dashboard", middleware.RequireAuth(http.HandlerFunc(dashboardHandler)))
+	mux.Handle("/enroll", middleware.RateLimit(handlers.EnrollHandler(cfg, i18n, enrollTmpl)))
+	mux.Handle("/verify", handlers.VerifyHandler(cfg, i18n, verifyTmpl))
+	mux.Handle("/register", middleware.RateLimit(handlers.RegisterHandler(cfg, i18n, registerTmpl)))
+	mux.Handle("/confirm", handlers.ConfirmHandler(cfg, i18n, confirmTmpl))
+	mux.Handle("/login", middleware.RateLimit(handlers.LoginHandler(cfg, i18n, loginTmpl)))
+	mux.Handle("/logout", handlers.LogoutHandler(cfg, i18n))
+	mux.Handle("/reset", middleware.RateLimit(handlers.RequestResetPasswordHandler(cfg, i18n, resetTmpl)))
+	mux.Handle("/reset/confirm", middleware.RateLimit(handlers.ResetPasswordHandler(cfg, i18n, resetTmpl)))
+	mux.Handle("/dashboard", middleware.RequireAuth(handlers.DashboardHandler(cfg, i18n, mainPageTmpl, tenantPageTmpl)))
 
 	resolver := multitenant.SubdomainResolver{Config: cfg}
 	fetcher := multitenant.DBFetcher{DB: db.DB}

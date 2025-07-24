@@ -9,6 +9,7 @@ import (
 
 var DB *sql.DB
 
+// Init initializes the database and creates the schema.
 func Init() {
 	var err error
 	DB, err = sql.Open("sqlite3", "./clubapp.db")
@@ -44,7 +45,7 @@ func Init() {
 		password_hash TEXT NOT NULL,
 		token TEXT NOT NULL UNIQUE,
 		expires_at DATETIME NOT NULL
-    );
+	);
 
 	CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,6 +68,7 @@ func Init() {
 		FOREIGN KEY (tenant_id) REFERENCES tenants(id),
 		UNIQUE(user_id, tenant_id)
 	);
+
 	CREATE TABLE IF NOT EXISTS pending_user_signups (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		email TEXT NOT NULL,
@@ -81,6 +83,15 @@ func Init() {
 		token TEXT PRIMARY KEY,
 		user_id INTEGER NOT NULL,
 		tenant_id INTEGER NOT NULL,
+		expires_at DATETIME NOT NULL,
+		FOREIGN KEY(user_id) REFERENCES users(id),
+		FOREIGN KEY(tenant_id) REFERENCES tenants(id)
+	);
+
+	CREATE TABLE IF NOT EXISTS password_resets (
+		user_id INTEGER NOT NULL,
+		tenant_id INTEGER NOT NULL,
+		token TEXT PRIMARY KEY,
 		expires_at DATETIME NOT NULL,
 		FOREIGN KEY(user_id) REFERENCES users(id),
 		FOREIGN KEY(tenant_id) REFERENCES tenants(id)
