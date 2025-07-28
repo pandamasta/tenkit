@@ -1,8 +1,8 @@
-{{ define "title" }}{{ call .T "reset.title" .TenantName }}{{ end }}
+{{ define "title" }}{{ call .T "reset.title" }}{{ end }}
 
 {{ define "content" }}
 <h2 class="text-2xl font-bold mb-4">{{ call .T "reset.heading" }}</h2>
-<p class="text-sm text-gray-500">{{ call .T "reset.info" .TenantName }}</p>
+<p class="text-sm text-gray-500">{{ call .T "reset.info" }}</p>
 {{ if .Extra.Error }}
     <div class="alert alert-error">{{ .Extra.Error }}</div>
 {{ end }}

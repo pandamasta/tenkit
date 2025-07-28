@@ -1,14 +1,17 @@
-{{ define "title" }}{{ call .T "dashboard.title" .TenantName }}{{ end }}
+{{ define "title" }}{{ call .T "dashboard.title" }}{{ end }}
 
 {{ define "content" }}
 <h2 class="text-2xl font-bold mb-4">{{ call .T "dashboard.heading" }}</h2>
-<p class="text-sm text-gray-500">{{ call .T "dashboard.welcome" .Email }}</p>
+{{ if .User.Email }}
+    <p class="text-sm text-gray-500">{{ call .T "dashboard.welcome" .User.Email }}</p>
+{{ else }}
+    <p class="text-sm text-gray-500">{{ call .T "dashboard.welcome" "Guest" }}</p>
+{{ end }}
 <div class="card bg-base-100 shadow-xl max-w-md mx-auto">
     <div class="card-body">
-        <h3 class="card-title">{{ call .T "dashboard.user_info" }}</h3>
-        <p><strong>{{ call .T "dashboard.email" }}</strong>: {{ .Email }}</p>
-        <p><strong>{{ call .T "dashboard.role" }}</strong>: {{ .Role }}</p>
-        <p><strong>{{ call .T "dashboard.tenant" }}</strong>: {{ .TenantName }} (ID: {{ .TenantID }})</p>
+        <p><strong>{{ call .T "dashboard.email" }}</strong>: {{ if .User.Email }}{{ .User.Email }}{{ else }}N/A{{ end }}</p>
+        <p><strong>{{ call .T "dashboard.role" }}</strong>: {{ if .Extra.Role }}{{ .Extra.Role }}{{ else }}member{{ end }}</p>
+        <p><strong>{{ call .T "dashboard.tenant" }}</strong>: {{ if .Tenant.Name }}{{ .Tenant.Name }} (ID: {{ .Tenant.ID }}){{ else }}Main Site (ID: 0){{ end }}</p>
     </div>
 </div>
 {{ end }}

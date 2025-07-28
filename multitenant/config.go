@@ -31,6 +31,7 @@ type CookieConfig struct {
 	Secure   bool
 	SameSite http.SameSite
 	MaxAge   time.Duration
+	Domain   string // Added to specify cookie domain
 }
 
 // CSRFConfig holds CSRF token configuration for cookie and headers.
@@ -64,12 +65,13 @@ func LoadDefaultConfig() *Config {
 			Secure:   getEnvBool("SESSION_COOKIE_SECURE", isSecure),
 			SameSite: http.SameSiteLaxMode,
 			MaxAge:   7 * 24 * time.Hour,
+			Domain:   "", // Empty for localhost; set to ".xxx.xx" in production
 		},
 		CSRF: CSRFConfig{
 			CookieName: "csrf_token",
 			HeaderName: "X-CSRF-Token",
 			Secure:     getEnvBool("CSRF_COOKIE_SECURE", isSecure),
-			SameSite:   http.SameSiteStrictMode,
+			SameSite:   http.SameSiteLaxMode,
 			MaxAge:     2 * time.Hour,
 		},
 		Server: ServerConfig{

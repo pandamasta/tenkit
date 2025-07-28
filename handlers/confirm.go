@@ -1,20 +1,21 @@
 package handlers
 
 import (
+	"database/sql"
 	"html/template"
 	"log/slog"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/pandamasta/tenkit/db"
 	"github.com/pandamasta/tenkit/internal/i18n"
 	"github.com/pandamasta/tenkit/internal/render"
 	"github.com/pandamasta/tenkit/multitenant"
 	"github.com/pandamasta/tenkit/multitenant/middleware"
-	"github.com/pandamasta/tenkit/multitenant/utils"
 )
 
 // InitConfirmTemplates parses the templates needed for the confirm page.
-// It includes header, base layout, and confirm-specific content.
 func InitConfirmTemplates(base []string) *template.Template {
 	tmpl := template.New("base").Funcs(template.FuncMap{
 		"t": func(key string, args ...any) string {
@@ -30,109 +31,298 @@ func InitConfirmTemplates(base []string) *template.Template {
 	return tmpl
 }
 
-// ConfirmHandler handles user confirmation via token.
+// ConfirmHandler handles GET requests for /confirm to verify user or tenant signup.
 func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lang := middleware.LangFromContext(r.Context())
 
-		// Step 1: Validate the token
+		// Step 1: Restrict to tenant domains for user confirmation, allow marketing domain for tenant confirmation
+		tenant := middleware.FromContext(r.Context())
+		isTenantRequest := middleware.IsTenantRequest(r.Context())
+
+		// Step 2: Extract token from query parameter
 		token := r.URL.Query().Get("token")
-		email, tid, ok := utils.ValidateUserToken(token)
-		if !ok {
-			slog.Info("[CONFIRM] Invalid or expired token")
+		if token == "" {
+			slog.Warn("[CONFIRM] Missing token")
 			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Message": i18n.T("confirm.invalid_token", lang),
+				"Error": i18n.T("confirm.error.missing_token", lang),
 			})
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
 
-		// Step 2: Check for pending signup in DB
-		var ph string
-		err := db.DB.QueryRow(`
-			SELECT password_hash FROM pending_user_signups WHERE token = ? AND tenant_id = ?`, token, tid).Scan(&ph)
-		if err != nil {
-			slog.Info("[CONFIRM] No signup found for email=%s, tid=%d", "email", email, "tid", tid)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Message": i18n.T("confirm.not_found", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
-			return
-		}
-
-		// Step 3: Insert user and membership, delete pending signup
+		// Step 3: Start transaction
 		tx, err := db.DB.Begin()
 		if err != nil {
 			slog.Error("[CONFIRM] Failed to start transaction", "err", err)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Message": i18n.T("confirm.internal_error", lang),
+				"Error": i18n.T("confirm.error.internal", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
-		defer tx.Rollback() // Rollback if not committed
+		defer tx.Rollback()
 
-		res, err := tx.Exec(`
-			INSERT INTO users (email, password_hash, is_verified, tenant_id, role)
-			VALUES (?, ?, 1, ?, 'member')`, email, ph, tid)
-		if err != nil {
-			slog.Error("[CONFIRM] Failed to insert user", "err", err)
+		// Step 4: Check for user signup in pending_user_signups (for /register)
+		var userID, tenantID int64
+		var email, passwordHash string
+		err = tx.QueryRow(`
+			SELECT email, tenant_id, password_hash 
+			FROM pending_user_signups 
+			WHERE token = ? AND expires_at > ?`,
+			token, time.Now()).Scan(&email, &tenantID, &passwordHash)
+		if err == nil && isTenantRequest {
+			// Step 5: Verify tenant matches
+			if tenant == nil || tenant.ID != tenantID {
+				slog.Warn("[CONFIRM] Tenant mismatch", "token", token, "tenant_id", tenantID)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.invalid_token", lang),
+				})
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+
+			// Step 6: Check if user already exists
+			var exists int
+			err = tx.QueryRow(`SELECT 1 FROM users WHERE email = ?`, email).Scan(&exists)
+			if err == nil {
+				slog.Warn("[CONFIRM] User already exists", "email", email)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.already_registered", lang),
+				})
+				// Delete pending signup to prevent reuse
+				_, _ = tx.Exec(`DELETE FROM pending_user_signups WHERE token = ?`, token)
+				tx.Commit()
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+			if err != sql.ErrNoRows {
+				slog.Error("[CONFIRM] Failed to check user existence", "err", err, "email", email)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.internal", lang),
+				})
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+
+			// Step 7: Insert user
+			result, err := tx.Exec(`
+				INSERT INTO users (email, password_hash, is_verified, tenant_id, role)
+				VALUES (?, ?, ?, ?, ?)`,
+				email, passwordHash, true, tenantID, "member")
+			if err != nil {
+				slog.Error("[CONFIRM] Failed to insert user", "err", err, "email", email)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.internal", lang),
+				})
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+
+			// Step 8: Get inserted user ID
+			userID, err = result.LastInsertId()
+			if err != nil {
+				slog.Error("[CONFIRM] Failed to get user ID", "err", err)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.internal", lang),
+				})
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+
+			// Step 9: Insert membership
+			_, err = tx.Exec(`
+				INSERT INTO memberships (user_id, tenant_id, role, is_active)
+				VALUES (?, ?, ?, ?)`,
+				userID, tenantID, "member", true)
+			if err != nil {
+				slog.Error("[CONFIRM] Failed to insert membership", "err", err)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.internal", lang),
+				})
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+
+			// Step 10: Delete pending signup
+			_, err = tx.Exec(`DELETE FROM pending_user_signups WHERE token = ?`, token)
+			if err != nil {
+				slog.Warn("[CONFIRM] Failed to delete pending user signup", "err", err)
+			}
+
+			// Step 11: Commit transaction
+			if err := tx.Commit(); err != nil {
+				slog.Error("[CONFIRM] Failed to commit transaction", "err", err)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.internal", lang),
+				})
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+
+			// Step 12: Log success and redirect
+			slog.Info("[CONFIRM] User confirmed", "email", email, "tenant_id", tenantID)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Message": i18n.T("confirm.internal_error", lang),
+				"Success": i18n.T("confirm.success.user", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
-		}
-
-		uid, err := res.LastInsertId()
-		if err != nil {
-			slog.Error("[CONFIRM] Failed to get user ID", "err", err)
+		} else if err != sql.ErrNoRows {
+			slog.Error("[CONFIRM] Failed to fetch pending user signup", "err", err)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Message": i18n.T("confirm.internal_error", lang),
+				"Error": i18n.T("confirm.error.invalid_token", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
 
-		_, err = tx.Exec(`INSERT INTO memberships (user_id, tenant_id, role, is_active) VALUES (?, ?, 'member', 1)`, uid, tid)
-		if err != nil {
-			slog.Error("[CONFIRM] Failed to insert membership", "err", err)
+		// Step 13: Check for tenant signup in pending_tenant_signups (for /enroll)
+		var orgName string
+		err = tx.QueryRow(`
+			SELECT email, org_name, password_hash 
+			FROM pending_tenant_signups 
+			WHERE token = ? AND expires_at > ?`,
+			token, time.Now()).Scan(&email, &orgName, &passwordHash)
+		if err == nil && !isTenantRequest {
+			// Step 14: Check if user or tenant already exists
+			var exists int
+			err = tx.QueryRow(`SELECT 1 FROM users WHERE email = ?`, email).Scan(&exists)
+			if err == nil {
+				slog.Warn("[CONFIRM] User already exists for tenant signup", "email", email)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.already_registered", lang),
+				})
+				// Delete pending signup to prevent reuse
+				_, _ = tx.Exec(`DELETE FROM pending_tenant_signups WHERE token = ?`, token)
+				tx.Commit()
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+			if err != sql.ErrNoRows {
+				slog.Error("[CONFIRM] Failed to check user existence for tenant", "err", err, "email", email)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.internal", lang),
+				})
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+
+			// Step 15: Check for duplicate subdomain
+			subdomain := strings.ToLower(strings.ReplaceAll(orgName, " ", ""))
+			err = tx.QueryRow(`SELECT 1 FROM tenants WHERE subdomain = ?`, subdomain).Scan(&exists)
+			if err == nil {
+				slog.Warn("[CONFIRM] Subdomain already exists", "subdomain", subdomain)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.subdomain_exists", lang),
+				})
+				// Delete pending signup to prevent reuse
+				_, _ = tx.Exec(`DELETE FROM pending_tenant_signups WHERE token = ?`, token)
+				tx.Commit()
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+			if err != sql.ErrNoRows {
+				slog.Error("[CONFIRM] Failed to check subdomain existence", "err", err, "subdomain", subdomain)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.internal", lang),
+				})
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+
+			// Step 16: Insert tenant
+			result, err := tx.Exec(`
+				INSERT INTO tenants (name, slug, subdomain, email, is_active, allow_signins)
+				VALUES (?, ?, ?, ?, ?, ?)`,
+				orgName, subdomain, subdomain, email, true, true)
+			if err != nil {
+				slog.Error("[CONFIRM] Failed to insert tenant", "err", err)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.internal", lang),
+				})
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+
+			// Step 17: Get inserted tenant ID
+			tenantID, err = result.LastInsertId()
+			if err != nil {
+				slog.Error("[CONFIRM] Failed to get tenant ID", "err", err)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.internal", lang),
+				})
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+
+			// Step 18: Insert user
+			result, err = tx.Exec(`
+				INSERT INTO users (email, password_hash, is_verified, tenant_id, role)
+				VALUES (?, ?, ?, ?, ?)`,
+				email, passwordHash, true, tenantID, "admin")
+			if err != nil {
+				slog.Error("[CONFIRM] Failed to insert user", "err", err, "email", email)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.internal", lang),
+				})
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+
+			// Step 19: Get inserted user ID
+			userID, err = result.LastInsertId()
+			if err != nil {
+				slog.Error("[CONFIRM] Failed to get user ID", "err", err)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.internal", lang),
+				})
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+
+			// Step 20: Insert membership
+			_, err = tx.Exec(`
+				INSERT INTO memberships (user_id, tenant_id, role, is_active)
+				VALUES (?, ?, ?, ?)`,
+				userID, tenantID, "admin", true)
+			if err != nil {
+				slog.Error("[CONFIRM] Failed to insert membership", "err", err)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.internal", lang),
+				})
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+
+			// Step 21: Delete pending signup
+			_, err = tx.Exec(`DELETE FROM pending_tenant_signups WHERE token = ?`, token)
+			if err != nil {
+				slog.Warn("[CONFIRM] Failed to delete pending tenant signup", "err", err)
+			}
+
+			// Step 22: Commit transaction
+			if err := tx.Commit(); err != nil {
+				slog.Error("[CONFIRM] Failed to commit transaction", "err", err)
+				data := render.BaseTemplateData(r, i18n, map[string]any{
+					"Error": i18n.T("confirm.error.internal", lang),
+				})
+				render.RenderTemplate(w, tmpl, "base", data)
+				return
+			}
+
+			// Step 23: Log success and redirect
+			slog.Info("[CONFIRM] Tenant and user confirmed", "email", email, "tenant_id", tenantID)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Message": i18n.T("confirm.internal_error", lang),
+				"Success": i18n.T("confirm.success.tenant", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
 
-		_, err = tx.Exec(`DELETE FROM pending_user_signups WHERE token = ?`, token)
-		if err != nil {
-			slog.Error("[CONFIRM] Failed to delete pending signup", "err", err)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Message": i18n.T("confirm.internal_error", lang),
-			})
-			w.WriteHeader(http.StatusInternalServerError)
-			render.RenderTemplate(w, tmpl, "base", data)
-			return
-		}
-
-		if err := tx.Commit(); err != nil {
-			slog.Error("[CONFIRM] Failed to commit transaction", "err", err)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Message": i18n.T("confirm.internal_error", lang),
-			})
-			w.WriteHeader(http.StatusInternalServerError)
-			render.RenderTemplate(w, tmpl, "base", data)
-			return
-		}
-
-		// Step 4: Render success message
-		slog.Info("[CONFIRM] User confirmed: %s (tenant %d)", "email", email, "tid", tid)
+		// Step 24: Invalid token
+		slog.Warn("[CONFIRM] Invalid or expired token", "token", token)
 		data := render.BaseTemplateData(r, i18n, map[string]any{
-			"Message": i18n.T("confirm.success", lang),
+			"Error": i18n.T("confirm.error.invalid_token", lang),
 		})
 		render.RenderTemplate(w, tmpl, "base", data)
 	}

@@ -17,7 +17,6 @@ import (
 )
 
 // InitLoginTemplates parses the templates needed for the login page.
-// It includes header, base layout, and login-specific content.
 func InitLoginTemplates(base []string) *template.Template {
 	tmpl := template.New("base").Funcs(template.FuncMap{
 		"t": func(key string, args ...any) string {
@@ -38,10 +37,10 @@ func LoginHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Templ
 	return func(w http.ResponseWriter, r *http.Request) {
 		lang := middleware.LangFromContext(r.Context())
 
-		// Step 1: Redirect to default tenant if on marketing domain
+		// Step 1: Restrict to tenant domains, return 404 if on marketing domain
 		if !middleware.IsTenantRequest(r.Context()) {
-			slog.Info("[LOGIN] Redirecting from main domain to tenant login", "host", r.Host)
-			http.Redirect(w, r, "http://default-tenant."+cfg.Domain+"/login", http.StatusSeeOther)
+			slog.Warn("[LOGIN] Login attempted on marketing domain", "host", r.Host)
+			http.NotFound(w, r)
 			return
 		}
 
@@ -55,53 +54,48 @@ func LoginHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Templ
 
 		// Step 3: Handle GET request to serve the login form
 		if r.Method == http.MethodGet {
-			// Step 4: Prepare data for template
 			data := render.BaseTemplateData(r, i18n, nil)
-			// Step 5: Check for error in query params (from redirect)
 			if errorKey := r.URL.Query().Get("error"); errorKey != "" {
 				data.Extra = map[string]any{
 					"Error": i18n.T("login.error."+errorKey, lang),
 				}
 			}
-			slog.Debug("[LOGIN] Rendering login form", "lang", lang)
+			slog.Debug("[LOGIN] Rendering login form", "lang", lang, "tenant", t.Subdomain)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
 
-		// Step 6: Parse form data from POST request
+		// Step 4: Parse form data from POST request
 		if err := r.ParseForm(); err != nil {
 			slog.Error("[LOGIN] Invalid form", "err", err)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("login.error.InvalidForm", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
 
-		// Step 7: Extract submitted values
+		// Step 5: Extract submitted values
 		email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 		pass := r.FormValue("password")
 
-		// Step 8: Validate required fields
+		// Step 6: Validate required fields
 		if email == "" || pass == "" {
 			slog.Warn("[LOGIN] Missing required fields", "email", email)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("login.error.MissingFields", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
 
-		// Step 9: Look up user by email and tenant
+		// Step 7: Look up user by email and tenant
 		user, err := models.GetUserByEmailAndTenant(email, t.ID)
 		if err != nil {
 			slog.Error("[LOGIN] DB error", "email", email, "tenant", t.Subdomain, "err", err)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("login.error.Internal", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -110,26 +104,24 @@ func LoginHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Templ
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("login.error.InvalidCreds", lang),
 			})
-			w.WriteHeader(http.StatusUnauthorized)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
 
-		// Step 10: Verify password
+		// Step 8: Verify password
 		if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(pass)); err != nil {
 			slog.Info("[LOGIN] Wrong password", "email", email, "tenant", t.Subdomain)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("login.error.InvalidCreds", lang),
 			})
-			w.WriteHeader(http.StatusUnauthorized)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
 
-		// Step 11: Create session token
+		// Step 9: Create session token
 		token := models.CreateSession(user.ID, user.TenantID)
 
-		// Step 12: Set session cookie
+		// Step 10: Set session cookie
 		cookie := http.Cookie{
 			Name:     cfg.SessionCookie.Name,
 			Value:    token,
@@ -141,9 +133,10 @@ func LoginHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Templ
 		}
 		http.SetCookie(w, &cookie)
 
-		// Step 13: Log success and redirect
+		// Step 11: Log success and redirect with 302
 		slog.Info("[LOGIN] User logged in", "email", email, "tenant", t.Subdomain)
-		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+		w.Header().Set("Location", "/dashboard")
+		w.WriteHeader(http.StatusFound) // Use 302 Found instead of 303 See Other
 	}
 }
 

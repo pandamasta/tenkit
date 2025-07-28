@@ -70,5 +70,16 @@
   "register.error.missing_fields": "Email and password are required",
   "register.error.already_registered": "Already registered — check your email",
   "register.error.internal": "An internal error occurred",
-  "register.success": "Check your email for a confirmation link"
+  "register.success": "Check your email for a confirmation link",
+
+
+  "login.error.auth": "You must be logged in to access this page",
+  "login.error.InvalidCSRF": "Invalid or missing CSRF token",
+
+  "dashboard.title": "Dashboard",
+  "dashboard.heading": "Dasboard",
+  "dashboard.welcome": "Welcome to the dashboard",
+  "dashboard.email": "Email",
+  "dashboard.role": "Role",
+  "dashboard.tenant": "Tenant"
 }

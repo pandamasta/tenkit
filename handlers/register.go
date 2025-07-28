@@ -69,7 +69,6 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("register.error.invalid_form", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -82,7 +81,6 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("register.error.missing_fields", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -93,7 +91,6 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("register.error.invalid_email", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -104,7 +101,6 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("register.error.invalid_password", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -116,7 +112,6 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("register.error.internal", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -133,7 +128,6 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("register.error.internal", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -142,7 +136,6 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("register.error.already_registered", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -154,7 +147,6 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("register.error.internal", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -166,7 +158,6 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("register.error.internal", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -179,7 +170,6 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("register.error.internal", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -190,7 +180,6 @@ func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Te
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("register.error.internal", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}

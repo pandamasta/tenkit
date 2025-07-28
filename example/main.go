@@ -52,13 +52,14 @@ func main() {
 		"templates/base.html",
 		"templates/header.html",
 	}
-	mainPageTmpl, tenantPageTmpl = handlers.InitDashboardTemplates(baseTemplates)
+	mainPageTmpl, tenantPageTmpl = handlers.InitHomeTemplates(baseTemplates)
 	enrollTmpl := handlers.InitEnrollTemplates(baseTemplates)
 	verifyTmpl := handlers.InitVerifyTemplates(baseTemplates)
 	registerTmpl := handlers.InitRegisterTemplates(baseTemplates)
 	confirmTmpl := handlers.InitConfirmTemplates(baseTemplates)
 	loginTmpl := handlers.InitLoginTemplates(baseTemplates)
 	resetTmpl := handlers.InitResetTemplates(baseTemplates)
+	dashboardTmpl := handlers.InitDashboardTemplates(baseTemplates)
 
 	// Routes
 	mux := http.NewServeMux()
@@ -87,7 +88,7 @@ func main() {
 	mux.Handle("/logout", handlers.LogoutHandler(cfg, i18n))
 	mux.Handle("/reset", middleware.RateLimit(handlers.RequestResetPasswordHandler(cfg, i18n, resetTmpl)))
 	mux.Handle("/reset/confirm", middleware.RateLimit(handlers.ResetPasswordHandler(cfg, i18n, resetTmpl)))
-	mux.Handle("/dashboard", middleware.RequireAuth(handlers.DashboardHandler(cfg, i18n, mainPageTmpl, tenantPageTmpl)))
+	mux.Handle("/dashboard", middleware.RequireAuth(handlers.DashboardHandler(i18n, dashboardTmpl)))
 
 	resolver := multitenant.SubdomainResolver{Config: cfg}
 	fetcher := multitenant.DBFetcher{DB: db.DB}

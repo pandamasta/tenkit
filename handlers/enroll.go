@@ -56,7 +56,7 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 		if r.Method == http.MethodGet {
 			slog.Debug("[ENROLL] GET request received")
 			data := render.BaseTemplateData(r, i18n, nil)
-			slog.Debug("[ENROLL] Rendering template with base layout using RenderTemplate")
+			slog.Debug("[ENROLL] Rendering template")
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -67,7 +67,6 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("enroll.invalid_form", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -82,7 +81,6 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("enroll.required_fields", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -93,7 +91,6 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("enroll.invalid_email", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -105,7 +102,6 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("enroll.invalid_org_name", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -116,7 +112,6 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("enroll.invalid_password", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -131,7 +126,6 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("enroll.internal_error", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		} else {
@@ -139,7 +133,6 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("enroll.email_or_subdomain_exists", lang),
 			})
-			w.WriteHeader(http.StatusConflict)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -151,7 +144,6 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("enroll.internal_error", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -165,7 +157,6 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("enroll.internal_error", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -180,7 +171,6 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("enroll.internal_error", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}

@@ -42,7 +42,7 @@ func RequestResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl 
 		if r.Method == http.MethodGet {
 			slog.Debug("[RESET] GET request received")
 			data := render.BaseTemplateData(r, i18n, nil)
-			slog.Debug("[RESET] Rendering template with base layout using RenderTemplate")
+			slog.Debug("[RESET] Rendering template")
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -53,7 +53,6 @@ func RequestResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl 
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("reset.error.invalid_form", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -61,11 +60,10 @@ func RequestResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl 
 		// Step 3: Extract and validate form data
 		email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 		if email == "" {
-			slog.Warn("[RESET] Missing email", "email", email)
+			slog.Warn("[RESET] Missing email")
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("reset.error.missing_fields", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -76,7 +74,6 @@ func RequestResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl 
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("reset.error.invalid_email", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -95,7 +92,6 @@ func RequestResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl 
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("reset.error.internal", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -122,7 +118,6 @@ func RequestResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl 
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("reset.error.internal", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -155,7 +150,7 @@ func ResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *templa
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Token": r.URL.Query().Get("token"),
 			})
-			slog.Debug("[RESET] Rendering template with base layout using RenderTemplate")
+			slog.Debug("[RESET] Rendering template")
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -166,7 +161,6 @@ func ResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *templa
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("reset.error.invalid_form", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -179,7 +173,6 @@ func ResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *templa
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("reset.error.missing_fields", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -190,7 +183,6 @@ func ResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *templa
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("reset.error.invalid_password", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -205,7 +197,6 @@ func ResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *templa
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("reset.error.invalid_token", lang),
 			})
-			w.WriteHeader(http.StatusBadRequest)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -217,7 +208,6 @@ func ResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *templa
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("reset.error.internal", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
@@ -231,7 +221,6 @@ func ResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *templa
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Error": i18n.T("reset.error.internal", lang),
 			})
-			w.WriteHeader(http.StatusInternalServerError)
 			render.RenderTemplate(w, tmpl, "base", data)
 			return
 		}
