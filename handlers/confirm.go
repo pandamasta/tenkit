@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -15,24 +16,19 @@ import (
 	"github.com/pandamasta/tenkit/multitenant/middleware"
 )
 
-// InitConfirmTemplates parses the templates needed for the confirm page.
-func InitConfirmTemplates(base []string) *template.Template {
-	tmpl := template.New("base").Funcs(template.FuncMap{
-		"t": func(key string, args ...any) string {
-			return key // Placeholder
-		},
-	})
-	var err error
-	tmpl, err = tmpl.ParseFiles(append(base, "templates/confirm.html")...)
-	if err != nil {
-		slog.Error("[CONFIRM] Failed to parse confirm template", "err", err)
-		panic(err)
-	}
-	return tmpl
-}
-
 // ConfirmHandler handles GET requests for /confirm to verify user or tenant signup.
-func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Template) http.HandlerFunc {
+func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, baseTmpl *template.Template) http.HandlerFunc {
+	tmpl, err := baseTmpl.Clone()
+	if err != nil {
+		slog.Error("[CONFIRM] Failed to clone base template", "err", err)
+		os.Exit(1) // Or panic
+	}
+	tmpl, err = tmpl.ParseFiles("templates/confirm.html")
+	if err != nil {
+		slog.Error("[CONFIRM] Failed to parse login template", "err", err)
+		os.Exit(1)
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		lang := middleware.LangFromContext(r.Context())
 
@@ -44,10 +40,7 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 		token := r.URL.Query().Get("token")
 		if token == "" {
 			slog.Warn("[CONFIRM] Missing token")
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("confirm.error.missing_token", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "confirm.error.missing_token")
 			return
 		}
 
@@ -55,10 +48,7 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 		tx, err := db.DB.Begin()
 		if err != nil {
 			slog.Error("[CONFIRM] Failed to start transaction", "err", err)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("confirm.error.internal", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "confirm.error.internal")
 			return
 		}
 		defer tx.Rollback()
@@ -75,10 +65,7 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 			// Step 5: Verify tenant matches
 			if tenant == nil || tenant.ID != tenantID {
 				slog.Warn("[CONFIRM] Tenant mismatch", "token", token, "tenant_id", tenantID)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.invalid_token", lang),
-				})
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.invalid_token")
 				return
 			}
 
@@ -87,21 +74,15 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 			err = tx.QueryRow(`SELECT 1 FROM users WHERE email = ?`, email).Scan(&exists)
 			if err == nil {
 				slog.Warn("[CONFIRM] User already exists", "email", email)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.already_registered", lang),
-				})
 				// Delete pending signup to prevent reuse
 				_, _ = tx.Exec(`DELETE FROM pending_user_signups WHERE token = ?`, token)
 				tx.Commit()
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.already_registered")
 				return
 			}
 			if err != sql.ErrNoRows {
 				slog.Error("[CONFIRM] Failed to check user existence", "err", err, "email", email)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.internal", lang),
-				})
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.internal")
 				return
 			}
 
@@ -112,10 +93,7 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 				email, passwordHash, true, tenantID, "member")
 			if err != nil {
 				slog.Error("[CONFIRM] Failed to insert user", "err", err, "email", email)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.internal", lang),
-				})
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.internal")
 				return
 			}
 
@@ -123,10 +101,7 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 			userID, err = result.LastInsertId()
 			if err != nil {
 				slog.Error("[CONFIRM] Failed to get user ID", "err", err)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.internal", lang),
-				})
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.internal")
 				return
 			}
 
@@ -137,10 +112,7 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 				userID, tenantID, "member", true)
 			if err != nil {
 				slog.Error("[CONFIRM] Failed to insert membership", "err", err)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.internal", lang),
-				})
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.internal")
 				return
 			}
 
@@ -153,10 +125,7 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 			// Step 11: Commit transaction
 			if err := tx.Commit(); err != nil {
 				slog.Error("[CONFIRM] Failed to commit transaction", "err", err)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.internal", lang),
-				})
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.internal")
 				return
 			}
 
@@ -169,10 +138,7 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 			return
 		} else if err != sql.ErrNoRows {
 			slog.Error("[CONFIRM] Failed to fetch pending user signup", "err", err)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("confirm.error.invalid_token", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "confirm.error.invalid_token")
 			return
 		}
 
@@ -189,21 +155,15 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 			err = tx.QueryRow(`SELECT 1 FROM users WHERE email = ?`, email).Scan(&exists)
 			if err == nil {
 				slog.Warn("[CONFIRM] User already exists for tenant signup", "email", email)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.already_registered", lang),
-				})
 				// Delete pending signup to prevent reuse
 				_, _ = tx.Exec(`DELETE FROM pending_tenant_signups WHERE token = ?`, token)
 				tx.Commit()
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.already_registered")
 				return
 			}
 			if err != sql.ErrNoRows {
 				slog.Error("[CONFIRM] Failed to check user existence for tenant", "err", err, "email", email)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.internal", lang),
-				})
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.internal")
 				return
 			}
 
@@ -212,21 +172,15 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 			err = tx.QueryRow(`SELECT 1 FROM tenants WHERE subdomain = ?`, subdomain).Scan(&exists)
 			if err == nil {
 				slog.Warn("[CONFIRM] Subdomain already exists", "subdomain", subdomain)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.subdomain_exists", lang),
-				})
 				// Delete pending signup to prevent reuse
 				_, _ = tx.Exec(`DELETE FROM pending_tenant_signups WHERE token = ?`, token)
 				tx.Commit()
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.subdomain_exists")
 				return
 			}
 			if err != sql.ErrNoRows {
 				slog.Error("[CONFIRM] Failed to check subdomain existence", "err", err, "subdomain", subdomain)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.internal", lang),
-				})
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.internal")
 				return
 			}
 
@@ -237,10 +191,7 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 				orgName, subdomain, subdomain, email, true, true)
 			if err != nil {
 				slog.Error("[CONFIRM] Failed to insert tenant", "err", err)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.internal", lang),
-				})
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.internal")
 				return
 			}
 
@@ -248,10 +199,7 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 			tenantID, err = result.LastInsertId()
 			if err != nil {
 				slog.Error("[CONFIRM] Failed to get tenant ID", "err", err)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.internal", lang),
-				})
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.internal")
 				return
 			}
 
@@ -262,10 +210,7 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 				email, passwordHash, true, tenantID, "admin")
 			if err != nil {
 				slog.Error("[CONFIRM] Failed to insert user", "err", err, "email", email)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.internal", lang),
-				})
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.internal")
 				return
 			}
 
@@ -273,10 +218,7 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 			userID, err = result.LastInsertId()
 			if err != nil {
 				slog.Error("[CONFIRM] Failed to get user ID", "err", err)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.internal", lang),
-				})
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.internal")
 				return
 			}
 
@@ -287,10 +229,7 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 				userID, tenantID, "admin", true)
 			if err != nil {
 				slog.Error("[CONFIRM] Failed to insert membership", "err", err)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.internal", lang),
-				})
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.internal")
 				return
 			}
 
@@ -303,10 +242,7 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 			// Step 22: Commit transaction
 			if err := tx.Commit(); err != nil {
 				slog.Error("[CONFIRM] Failed to commit transaction", "err", err)
-				data := render.BaseTemplateData(r, i18n, map[string]any{
-					"Error": i18n.T("confirm.error.internal", lang),
-				})
-				render.RenderTemplate(w, tmpl, "base", data)
+				renderError(w, r, tmpl, i18n, lang, "confirm.error.internal")
 				return
 			}
 
@@ -321,9 +257,6 @@ func ConfirmHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Tem
 
 		// Step 24: Invalid token
 		slog.Warn("[CONFIRM] Invalid or expired token", "token", token)
-		data := render.BaseTemplateData(r, i18n, map[string]any{
-			"Error": i18n.T("confirm.error.invalid_token", lang),
-		})
-		render.RenderTemplate(w, tmpl, "base", data)
+		renderError(w, r, tmpl, i18n, lang, "confirm.error.invalid_token")
 	}
 }

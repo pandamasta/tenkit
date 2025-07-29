@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/pandamasta/tenkit/db"
 	"github.com/pandamasta/tenkit/internal/i18n"
@@ -11,24 +12,19 @@ import (
 	"github.com/pandamasta/tenkit/multitenant/middleware"
 )
 
-// InitDashboardTemplates parses the template needed for the dashboard page.
-func InitDashboardTemplates(base []string) *template.Template {
-	tmpl := template.New("base").Funcs(template.FuncMap{
-		"t": func(key string, args ...any) string {
-			return key // Placeholder
-		},
-	})
-	var err error
-	tmpl, err = tmpl.ParseFiles(append(base, "templates/dashboard.html")...)
-	if err != nil {
-		slog.Error("[DASHBOARD] Failed to parse dashboard template", "err", err)
-		panic(err)
-	}
-	return tmpl
-}
-
 // DashboardHandler handles GET requests to display the user/admin dashboard.
-func DashboardHandler(i18n *i18n.I18n, tmpl *template.Template) http.HandlerFunc {
+func DashboardHandler(i18n *i18n.I18n, baseTmpl *template.Template) http.HandlerFunc {
+	tmpl, err := baseTmpl.Clone()
+	if err != nil {
+		slog.Error("[DASHBOARD] Failed to clone base template", "err", err)
+		os.Exit(1) // Or panic
+	}
+	tmpl, err = tmpl.ParseFiles("templates/dashboard.html")
+	if err != nil {
+		slog.Error("[DASHBOARD] Failed to parse login template", "err", err)
+		os.Exit(1)
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Step 1: Restrict to tenant domains, return 404 if on marketing domain
 		if !middleware.IsTenantRequest(r.Context()) {

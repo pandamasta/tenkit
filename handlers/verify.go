@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/pandamasta/tenkit/db"
@@ -15,27 +16,19 @@ import (
 	"github.com/pandamasta/tenkit/multitenant/utils"
 )
 
-// InitVerifyTemplates parses the templates needed for the verify page.
-// It includes header, base layout, and verify-specific content.
-func InitVerifyTemplates(base []string) *template.Template {
-	// Créer un template avec FuncMap pour tous les fichiers
-	tmpl := template.New("base").Funcs(template.FuncMap{
-		"t": func(key string, args ...any) string {
-			return key // Placeholder, overridden by TemplateData.T
-		},
-	})
-	var err error
-	// Parser tous les fichiers (base, header, verify)
-	tmpl, err = tmpl.ParseFiles(append(base, "templates/verify.html")...)
-	if err != nil {
-		slog.Error("[VERIFY] Failed to parse verify template", "err", err)
-		panic(err) // Replace with proper error handling in production
-	}
-	return tmpl
-}
-
 // VerifyHandler handles tenant verification via token.
-func VerifyHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Template) http.HandlerFunc {
+func VerifyHandler(cfg *multitenant.Config, i18n *i18n.I18n, baseTmpl *template.Template) http.HandlerFunc {
+	tmpl, err := baseTmpl.Clone()
+	if err != nil {
+		slog.Error("[VERIFY] Failed to clone base template", "err", err)
+		os.Exit(1) // Or panic
+	}
+	tmpl, err = tmpl.ParseFiles("templates/login.html")
+	if err != nil {
+		slog.Error("[VERIFY] Failed to parse login template", "err", err)
+		os.Exit(1)
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		lang := middleware.LangFromContext(r.Context())
 
@@ -54,13 +47,13 @@ func VerifyHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 		// Step 2: Normalize email and subdomain
 		email = strings.ToLower(strings.TrimSpace(email))
 		sub := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(org), " ", ""))
-		slog.Info("[VERIFY] Verifying email: %s, org: %s → subdomain: %s", "email", email, "org", org, "subdomain", sub)
+		slog.Info("[VERIFY] Verifying", "email", email, "org", org, "subdomain", sub)
 
 		// Step 3: Get password hash from pending signups
 		var ph string
 		err := db.DB.QueryRow(`SELECT password_hash FROM pending_tenant_signups WHERE token = ?`, token).Scan(&ph)
 		if err == sql.ErrNoRows {
-			slog.Info("[VERIFY] Token already used or not found: %s (%s)", "org", org, "email", email)
+			slog.Info("[VERIFY] Token already used or not found", "org", org, "email", email)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Message": i18n.T("verify.link_already_used", lang),
 			})
@@ -122,7 +115,7 @@ func VerifyHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 
 		// Step 7: Handle existing tenant/user cases
 		if tenantExists && userExists {
-			slog.Info("[VERIFY] Tenant and user already exist: %s (%s)", "subdomain", sub, "email", email)
+			slog.Info("[VERIFY] Tenant and user already exist", "subdomain", sub, "email", email)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Message": i18n.T("verify.already_verified", lang),
 			})
@@ -130,7 +123,7 @@ func VerifyHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			return
 		}
 		if tenantExists && !userExists {
-			slog.Info("[VERIFY] Tenant '%s' exists but user '%s' does not", "subdomain", sub, "email", email)
+			slog.Info("[VERIFY] Tenant exists but user does not", "subdomain", sub, "email", email)
 			data := render.BaseTemplateData(r, i18n, map[string]any{
 				"Message": i18n.T("common.conflict_error", lang),
 			})
@@ -222,7 +215,7 @@ func VerifyHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 		}
 
 		// Step 12: Render success message
-		slog.Info("[VERIFY] Tenant '%s' and user '%s' created successfully!", "subdomain", sub, "email", email)
+		slog.Info("[VERIFY] Tenant and user created successfully", "subdomain", sub, "email", email)
 		data := render.BaseTemplateData(r, i18n, map[string]any{
 			"Message": i18n.T("verify.success", lang),
 		})

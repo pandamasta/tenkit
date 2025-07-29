@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -16,24 +17,19 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// InitLoginTemplates parses the templates needed for the login page.
-func InitLoginTemplates(base []string) *template.Template {
-	tmpl := template.New("base").Funcs(template.FuncMap{
-		"t": func(key string, args ...any) string {
-			return key // Placeholder
-		},
-	})
-	var err error
-	tmpl, err = tmpl.ParseFiles(append(base, "templates/login.html")...)
+// LoginHandler handles GET and POST requests for /login.
+func LoginHandler(cfg *multitenant.Config, i18n *i18n.I18n, baseTmpl *template.Template) http.HandlerFunc {
+	tmpl, err := baseTmpl.Clone()
+	if err != nil {
+		slog.Error("[LOGIN] Failed to clone base template", "err", err)
+		os.Exit(1) // Or panic
+	}
+	tmpl, err = tmpl.ParseFiles("templates/login.html")
 	if err != nil {
 		slog.Error("[LOGIN] Failed to parse login template", "err", err)
-		panic(err)
+		os.Exit(1)
 	}
-	return tmpl
-}
 
-// LoginHandler handles GET and POST requests for /login.
-func LoginHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lang := middleware.LangFromContext(r.Context())
 
@@ -68,10 +64,7 @@ func LoginHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Templ
 		// Step 4: Parse form data from POST request
 		if err := r.ParseForm(); err != nil {
 			slog.Error("[LOGIN] Invalid form", "err", err)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("login.error.InvalidForm", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "login.error.InvalidForm")
 			return
 		}
 
@@ -82,10 +75,7 @@ func LoginHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Templ
 		// Step 6: Validate required fields
 		if email == "" || pass == "" {
 			slog.Warn("[LOGIN] Missing required fields", "email", email)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("login.error.MissingFields", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "login.error.MissingFields")
 			return
 		}
 
@@ -93,28 +83,19 @@ func LoginHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Templ
 		user, err := models.GetUserByEmailAndTenant(email, t.ID)
 		if err != nil {
 			slog.Error("[LOGIN] DB error", "email", email, "tenant", t.Subdomain, "err", err)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("login.error.Internal", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "login.error.Internal")
 			return
 		}
 		if user == nil {
 			slog.Info("[LOGIN] No user found", "email", email, "tenant", t.Subdomain)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("login.error.InvalidCreds", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "login.error.InvalidCreds")
 			return
 		}
 
 		// Step 8: Verify password
 		if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(pass)); err != nil {
 			slog.Info("[LOGIN] Wrong password", "email", email, "tenant", t.Subdomain)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("login.error.InvalidCreds", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "login.error.InvalidCreds")
 			return
 		}
 

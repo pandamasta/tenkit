@@ -2,7 +2,7 @@
 
 {{ define "content" }}
 <div class="card bg-base-100 shadow-xl p-6 text-center">
-    <h2 class="text-2xl font-bold mb-4">{{ .Extra.Message }}</h2>
+    <h2 class="text-2xl font-bold mb-4">Test: {{ .Extra.Message }}</h2> <!-- Add "Test:" to confirm rendering -->
     <a href="/login" class="btn btn-primary mt-4">{{ call .T "action.login" }}</a>
 </div>
 {{ end }}

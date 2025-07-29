@@ -85,7 +85,7 @@ func Init() {
 		tenant_id INTEGER NOT NULL,
 		expires_at DATETIME NOT NULL,
 		FOREIGN KEY(user_id) REFERENCES users(id),
-		FOREIGN KEY(tenant_id) REFERENCES tenants(id)
+		FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 	);
 
 	CREATE TABLE IF NOT EXISTS password_resets (
@@ -94,7 +94,7 @@ func Init() {
 		token TEXT PRIMARY KEY,
 		expires_at DATETIME NOT NULL,
 		FOREIGN KEY(user_id) REFERENCES users(id),
-		FOREIGN KEY(tenant_id) REFERENCES tenants(id)
+		FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 	);
 	`
 

@@ -7,42 +7,54 @@ import (
 
 	"github.com/pandamasta/tenkit/internal/i18n"
 	"github.com/pandamasta/tenkit/internal/render"
+	"github.com/pandamasta/tenkit/multitenant/middleware"
 )
 
-// InitHomeTemplates parses the templates for the landing page and tenant home page.
-// It includes header, base layout, and specific content for each.
-func InitHomeTemplates(base []string) (*template.Template, *template.Template) {
-	mainTmpl := template.New("base")
-	var err error
-	mainTmpl, err = mainTmpl.ParseFiles(append(base, "templates/main.html")...)
+// HomeHandler handles "/" and dispatches to marketing or tenant home.
+// TODO: Split into MarketingHomeHandler and TenantHomeHandler in separate files.
+func HomeHandler(i18n *i18n.I18n, baseTmpl *template.Template) http.HandlerFunc {
+	// Clone and parse specific templates
+	mainTmpl, err := baseTmpl.Clone() // Handle error
+	if err != nil {
+		slog.Error("[HOME] Failed to clone base for main template", "err", err)
+		panic(err)
+	}
+	mainTmpl, err = mainTmpl.ParseFiles("templates/main.html")
 	if err != nil {
 		slog.Error("[HOME] Failed to parse main template", "err", err)
-		panic(err)
+		panic(err) // Or handle gracefully
 	}
 
-	tenantTmpl := template.New("base")
-	tenantTmpl, err = tenantTmpl.ParseFiles(append(base, "templates/tenant.html")...)
+	tenantTmpl, err := baseTmpl.Clone() // Handle error
+	if err != nil {
+		slog.Error("[HOME] Failed to clone base for tenant template", "err", err)
+		panic(err)
+	}
+	tenantTmpl, err = tenantTmpl.ParseFiles("templates/tenant.html")
 	if err != nil {
 		slog.Error("[HOME] Failed to parse tenant template", "err", err)
-		panic(err)
+		panic(err) // Or handle gracefully
 	}
 
-	return mainTmpl, tenantTmpl
-}
-
-// HomeHandler handles the "/" route.
-// Renders the marketing landing page (if no tenant) or tenant home page (if tenant).
-func HomeHandler(i18n *i18n.I18n, mainTmpl, tenantTmpl *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		data := render.BaseTemplateData(r, i18n, nil)
-		slog.Debug("[HOME] Rendering home page", "lang", data.Lang, "tenant", data.Tenant != nil, "user", data.User != nil)
-
-		if data.Tenant != nil {
-			slog.Debug("[HOME] Rendering tenant template", "template", "tenant.html")
-			render.RenderTemplate(w, tenantTmpl, "base", data)
+		if middleware.FromContext(r.Context()) != nil {
+			tenantHome(w, r, i18n, tenantTmpl) // Dispatch to tenant
 		} else {
-			slog.Debug("[HOME] Rendering main template", "template", "main.html")
-			render.RenderTemplate(w, mainTmpl, "base", data)
+			marketingHome(w, r, i18n, mainTmpl) // Dispatch to marketing
 		}
 	}
+}
+
+// marketingHome renders the public landing page (extracted for future split).
+func marketingHome(w http.ResponseWriter, r *http.Request, i18n *i18n.I18n, tmpl *template.Template) {
+	data := render.BaseTemplateData(r, i18n, nil)
+	slog.Debug("[HOME] Rendering marketing home", "lang", data.Lang)
+	render.RenderTemplate(w, tmpl, "base", data)
+}
+
+// tenantHome renders the tenant-specific home (extracted for future split).
+func tenantHome(w http.ResponseWriter, r *http.Request, i18n *i18n.I18n, tmpl *template.Template) {
+	data := render.BaseTemplateData(r, i18n, nil)
+	slog.Debug("[HOME] Rendering tenant home", "lang", data.Lang, "tenant", data.Tenant.Subdomain)
+	render.RenderTemplate(w, tmpl, "base", data)
 }

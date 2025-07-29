@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -18,25 +19,19 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// InitRegisterTemplates parses the templates needed for the register page.
-// It includes header, base layout, and register-specific content.
-func InitRegisterTemplates(base []string) *template.Template {
-	tmpl := template.New("base").Funcs(template.FuncMap{
-		"t": func(key string, args ...any) string {
-			return key // Placeholder
-		},
-	})
-	var err error
-	tmpl, err = tmpl.ParseFiles(append(base, "templates/register.html")...)
-	if err != nil {
-		slog.Error("[REGISTER] Failed to parse register template", "err", err)
-		panic(err)
-	}
-	return tmpl
-}
-
 // RegisterHandler handles GET and POST requests for /register.
-func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Template) http.HandlerFunc {
+func RegisterHandler(cfg *multitenant.Config, i18n *i18n.I18n, baseTmpl *template.Template) http.HandlerFunc {
+	tmpl, err := baseTmpl.Clone()
+	if err != nil {
+		slog.Error("[REGISTER] Failed to clone base template", "err", err)
+		os.Exit(1)
+	}
+	tmpl, err = tmpl.ParseFiles("templates/login.html")
+	if err != nil {
+		slog.Error("[REGISTER] Failed to parse login template", "err", err)
+		os.Exit(1)
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		lang := middleware.LangFromContext(r.Context())
 

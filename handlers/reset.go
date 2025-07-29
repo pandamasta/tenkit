@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -17,25 +18,19 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// InitResetTemplates parses the templates needed for the reset password pages.
-func InitResetTemplates(base []string) *template.Template {
-	tmpl := template.New("base").Funcs(template.FuncMap{
-		"t": func(key string, args ...any) string {
-			return key // Placeholder
-		},
-	})
-	var err error
-	tmpl, err = tmpl.ParseFiles(append(base, "templates/reset.html")...)
-	if err != nil {
-		slog.Error("[RESET] Failed to parse reset template", "err", err)
-		panic(err)
-	}
-	return tmpl
-}
-
 // RequestResetPasswordHandler handles GET and POST requests for password reset requests.
-func RequestResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Template) http.HandlerFunc {
+func RequestResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, baseTmpl *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		tmpl, err := baseTmpl.Clone()
+		if err != nil {
+			slog.Error("[RESET] Failed to clone base template", "err", err)
+			os.Exit(1) // Or panic
+		}
+		tmpl, err = tmpl.ParseFiles("templates/login.html")
+		if err != nil {
+			slog.Error("[RESET] Failed to parse login template", "err", err)
+			os.Exit(1)
+		}
 		lang := middleware.LangFromContext(r.Context())
 
 		// Step 1: Handle GET request to serve the reset form
@@ -50,10 +45,7 @@ func RequestResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl 
 		// Step 2: Parse the form data for POST requests
 		if err := r.ParseForm(); err != nil {
 			slog.Error("[RESET] Invalid form", "err", err)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("reset.error.invalid_form", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "reset.error.invalid_form")
 			return
 		}
 
@@ -61,20 +53,14 @@ func RequestResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl 
 		email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 		if email == "" {
 			slog.Warn("[RESET] Missing email")
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("reset.error.missing_fields", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "reset.error.missing_fields")
 			return
 		}
 
 		// Step 4: Validate email format
 		if !emailRegex.MatchString(email) {
 			slog.Warn("[RESET] Invalid email format", "email", email)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("reset.error.invalid_email", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "reset.error.invalid_email")
 			return
 		}
 
@@ -89,10 +75,7 @@ func RequestResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl 
 		user, err := models.GetUserByEmailAndTenant(email, tenantID)
 		if err != nil {
 			slog.Error("[RESET] Failed to fetch user", "err", err, "email", email)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("reset.error.internal", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "reset.error.internal")
 			return
 		}
 		if user == nil {
@@ -115,10 +98,7 @@ func RequestResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl 
 			user.ID, tenantID, token, time.Now().Add(time.Hour))
 		if err != nil {
 			slog.Error("[RESET] Failed to store reset token", "err", err, "email", email)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("reset.error.internal", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "reset.error.internal")
 			return
 		}
 
@@ -158,10 +138,7 @@ func ResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *templa
 		// Step 2: Parse the form data for POST requests
 		if err := r.ParseForm(); err != nil {
 			slog.Error("[RESET] Invalid form", "err", err)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("reset.error.invalid_form", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "reset.error.invalid_form")
 			return
 		}
 
@@ -170,20 +147,14 @@ func ResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *templa
 		password := r.FormValue("password")
 		if token == "" || password == "" {
 			slog.Warn("[RESET] Missing required fields")
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("reset.error.missing_fields", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "reset.error.missing_fields")
 			return
 		}
 
 		// Step 4: Validate password policy
 		if !isValidPassword(password) {
 			slog.Warn("[RESET] Invalid password format")
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("reset.error.invalid_password", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "reset.error.invalid_password")
 			return
 		}
 
@@ -194,10 +165,7 @@ func ResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *templa
 			token, time.Now())
 		if err := row.Scan(&userID, &tenantID); err != nil {
 			slog.Error("[RESET] Invalid or expired token", "err", err)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("reset.error.invalid_token", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "reset.error.invalid_token")
 			return
 		}
 
@@ -205,10 +173,7 @@ func ResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *templa
 		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		if err != nil {
 			slog.Error("[RESET] Password hashing error", "err", err)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("reset.error.internal", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "reset.error.internal")
 			return
 		}
 
@@ -218,10 +183,7 @@ func ResetPasswordHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *templa
 			hash, userID, tenantID)
 		if err != nil {
 			slog.Error("[RESET] Failed to update password", "err", err, "user_id", userID)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("reset.error.internal", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "reset.error.internal")
 			return
 		}
 

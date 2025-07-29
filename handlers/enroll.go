@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -23,25 +24,19 @@ import (
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 var subdomainRegex = regexp.MustCompile(`^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$`)
 
-// InitEnrollTemplates parses the templates needed for the enroll page.
-// It includes header, base layout, and enroll-specific content.
-func InitEnrollTemplates(base []string) *template.Template {
-	tmpl := template.New("base").Funcs(template.FuncMap{
-		"t": func(key string, args ...any) string {
-			return key // Placeholder
-		},
-	})
-	var err error
-	tmpl, err = tmpl.ParseFiles(append(base, "templates/enroll.html")...)
-	if err != nil {
-		slog.Error("[ENROLL] Failed to parse enroll template", "err", err)
-		panic(err)
-	}
-	return tmpl
-}
-
 // EnrollHandler handles GET requests to serve the enroll form and POST requests to process it.
-func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Template) http.HandlerFunc {
+func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, baseTmpl *template.Template) http.HandlerFunc {
+	tmpl, err := baseTmpl.Clone()
+	if err != nil {
+		slog.Error("[ENROLL] Failed to clone base template", "err", err)
+		os.Exit(1) // Or panic
+	}
+	tmpl, err = tmpl.ParseFiles("templates/enroll.html")
+	if err != nil {
+		slog.Error("[ENROLL] Failed to parse login template", "err", err)
+		os.Exit(1)
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		lang := middleware.LangFromContext(r.Context())
 
@@ -64,10 +59,7 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 		// Step 3: Parse the form data for POST requests
 		if err := r.ParseForm(); err != nil {
 			slog.Error("[ENROLL] Invalid form", "err", err)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("enroll.invalid_form", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "enroll.invalid_form")
 			return
 		}
 
@@ -78,20 +70,14 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 		// Step 4: Validate required fields
 		if email == "" || org == "" || password == "" {
 			slog.Warn("[ENROLL] Missing required fields", "email", email, "org", org)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("enroll.required_fields", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "enroll.required_fields")
 			return
 		}
 
 		// Step 5: Validate email format
 		if !emailRegex.MatchString(email) {
 			slog.Warn("[ENROLL] Invalid email format", "email", email)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("enroll.invalid_email", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "enroll.invalid_email")
 			return
 		}
 
@@ -99,20 +85,14 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 		sub := strings.ToLower(strings.ReplaceAll(org, " ", ""))
 		if !subdomainRegex.MatchString(sub) {
 			slog.Warn("[ENROLL] Invalid subdomain", "sub", sub)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("enroll.invalid_org_name", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "enroll.invalid_org_name")
 			return
 		}
 
 		// Step 7: Validate password policy
 		if !isValidPassword(password) {
 			slog.Warn("[ENROLL] Invalid password format", "email", email)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("enroll.invalid_password", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "enroll.invalid_password")
 			return
 		}
 
@@ -123,17 +103,11 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			// No duplicate, proceed
 		} else if err != nil {
 			slog.Error("[ENROLL] DB lookup error", "err", err, "email", email, "sub", sub)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("enroll.internal_error", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "enroll.internal_error")
 			return
 		} else {
 			slog.Info("[ENROLL] Attempt to reuse email or subdomain", "org", org, "email", email)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("enroll.email_or_subdomain_exists", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "enroll.email_or_subdomain_exists")
 			return
 		}
 
@@ -141,10 +115,7 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		if err != nil {
 			slog.Error("[ENROLL] Password hashing error", "err", err)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("enroll.internal_error", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "enroll.internal_error")
 			return
 		}
 		passHash := string(hash)
@@ -154,10 +125,7 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 		token, err := utils.GenerateSignupToken(email, org, expires)
 		if err != nil {
 			slog.Error("[ENROLL] Token generation error", "err", err)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("enroll.internal_error", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "enroll.internal_error")
 			return
 		}
 
@@ -168,10 +136,7 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 			email, org, passHash, token, expires)
 		if err != nil {
 			slog.Error("[ENROLL] DB insert error", "err", err, "email", email)
-			data := render.BaseTemplateData(r, i18n, map[string]any{
-				"Error": i18n.T("enroll.internal_error", lang),
-			})
-			render.RenderTemplate(w, tmpl, "base", data)
+			renderError(w, r, tmpl, i18n, lang, "enroll.internal_error")
 			return
 		}
 
@@ -184,4 +149,12 @@ func EnrollHandler(cfg *multitenant.Config, i18n *i18n.I18n, tmpl *template.Temp
 		})
 		render.RenderTemplate(w, tmpl, "base", data)
 	}
+}
+
+// renderError is a helper to simplify error rendering in the template.
+func renderError(w http.ResponseWriter, r *http.Request, tmpl *template.Template, i18n *i18n.I18n, lang, errorKey string) {
+	data := render.BaseTemplateData(r, i18n, map[string]any{
+		"Error": i18n.T(errorKey, lang),
+	})
+	render.RenderTemplate(w, tmpl, "base", data)
 }
